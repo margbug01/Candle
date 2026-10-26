@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -144,6 +145,7 @@ func TestSelectMoveAndDelete(t *testing.T) {
 	if a.sel != ds[0].ID {
 		t.Fatal("a click on the line did not select it")
 	}
+	tt.Advance(time.Second) // not a double click, which edits rather than drags
 	x, y := win(a, 600, 201)
 	tt.Press(x, y)
 	tt.Move(x+10, y+30)
@@ -170,6 +172,7 @@ func TestDragAPoint(t *testing.T) {
 	clickPlot(tt, a, 300, 200)
 	clickPlot(tt, a, 500, 120)
 	first := drawings(a)[0].Pts[0]
+	tt.Advance(time.Second)
 	x, y := win(a, 500, 120)
 	tt.Press(x, y)
 	tt.Move(x+40, y+40)
