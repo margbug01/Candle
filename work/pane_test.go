@@ -117,6 +117,9 @@ func TestPaneAxisScalesItsPane(t *testing.T) {
 	if got := pv.scale.at(y-chartTop(a)-panes[0].y, pv.ax); !rel(got, at) {
 		t.Fatalf("the value under the pointer moved from %v to %v", at, got)
 	}
+	if pv.shown.lo != pv.scale.lo || pv.shown.hi != pv.scale.hi {
+		t.Fatalf("the pane shows %+v, scaled to %+v", pv.shown, pv.scale)
+	}
 	if a.scale.manual || a.view.spacing != spacing || a.paneViews[rsi].scale.manual {
 		t.Fatal("the wheel on MACD's axis scaled more than MACD")
 	}
@@ -215,10 +218,18 @@ func TestOffset(t *testing.T) {
 		t.Fatal("the legend does not name the offset")
 	}
 	from, to := a.view.span(a.plotW, n)
+	ma.Offset = 40 // far enough for what is drawn to differ from the bars in sight
 	lo, hi := a.overlayRange(from, to, math.Inf(1), math.Inf(-1), false)
 	wlo, whi := math.Inf(1), math.Inf(-1)
-	for i := from - 3; i <= to-3; i++ {
+	for i := from - 40; i <= to-40; i++ {
 		wlo, whi = min(wlo, s.at(0, i)), max(whi, s.at(0, i))
+	}
+	ulo, uhi := math.Inf(1), math.Inf(-1)
+	for i := from; i <= to; i++ {
+		ulo, uhi = min(ulo, s.at(0, i)), max(uhi, s.at(0, i))
+	}
+	if ulo == wlo && uhi == whi {
+		t.Fatal("the test cannot tell an offset from none")
 	}
 	if lo != wlo || hi != whi {
 		t.Fatalf("the prices fit %v–%v, want %v–%v", lo, hi, wlo, whi)
