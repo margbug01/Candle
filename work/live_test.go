@@ -34,6 +34,27 @@ func TestLive(t *testing.T) {
 			}
 		}
 	}
+	for _, key := range []string{"ma", "boll", "macd", "rsi"} {
+		k, _ := kindOf(key)
+		a.addIndicator(k)
+	}
+	// worked reports where every indicator began working out, and checks it
+	// came out as working out all of them does.
+	worked := func(what string) (from []int) {
+		t.Helper()
+		for i := range a.set.Indicators {
+			ind := &a.set.Indicators[i]
+			s := a.seriesFor(ind)
+			k, _ := kindOf(ind.Kind)
+			var fresh series
+			fresh.update(k, ind.Params, a.bars, a.gen)
+			for j := range k.plots {
+				same(t, what+" "+ind.Kind, s.out[j], fresh.out[j], 0)
+			}
+			from = append(from, s.from)
+		}
+		return from
+	}
 	t0 := time.Now()
 	a.start()
 	run("first page", 20*time.Second, func() bool { return len(a.bars) > 0 || a.err != "" })
@@ -41,7 +62,13 @@ func TestLive(t *testing.T) {
 		t.Fatal(a.err)
 	}
 	t.Logf("first page: %d bars in %v", len(a.bars), time.Since(t0).Round(time.Millisecond))
+	worked("first page")
 	run("live bar", 20*time.Second, func() bool { return a.stream == live })
+	for _, from := range worked("live bar") {
+		if from < len(a.bars)-2 {
+			t.Fatalf("a live bar worked the indicators out from bar %d of %d", from, len(a.bars))
+		}
+	}
 	t.Logf("stream live after %v; newest bar %s", time.Since(t0).Round(time.Millisecond), time.UnixMilli(a.bars[len(a.bars)-1].T).Format("01-02 15:04"))
 	run("watchlist", 20*time.Second, func() bool { return len(a.quotes) == len(a.set.Watch) && len(a.infos) >= len(a.set.Watch) })
 	run("all markets and the clock", 60*time.Second, func() bool { return a.allState >= 2 && a.clock != 0 })
@@ -67,6 +94,11 @@ func TestLive(t *testing.T) {
 	}
 	if g := gapCount(a.bars, a.intervalMs()); g != 0 {
 		t.Fatalf("%d gaps across the page boundary", g)
+	}
+	for _, from := range worked("older page") {
+		if from != 0 {
+			t.Fatalf("an older page worked the indicators out from bar %d", from)
+		}
 	}
 
 	// A switch drops what the old symbol still sends.

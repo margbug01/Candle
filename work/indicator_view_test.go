@@ -336,6 +336,28 @@ func TestDialogsKeepDrawingKeys(t *testing.T) {
 	}
 }
 
+// A frame of 3000 bars with every kind on, the pointer moving, drawn by
+// the tests' software renderer: the window's GPU is quicker.
+func TestFrameWith3000Bars(t *testing.T) {
+	keys := []string{"ma", "ma", "ema", "boll", "macd", "rsi", "kdj", "vol"}
+	timeFrames := func(keys ...string) time.Duration {
+		a := withIndicators(keys...)
+		a.bars, a.view.spacing = fakeBars(3000, 3_600_000), minSpacing
+		tt := newTester(a, true)
+		t0 := time.Now()
+		for i := range 20 {
+			tt.Move(chartLeft(a)+float32(100+20*i), 300)
+			tt.Frame()
+		}
+		return time.Since(t0) / 20
+	}
+	bare, all := timeFrames(), timeFrames(keys...)
+	t.Logf("a frame: %v without indicators, %v with %d", bare, all, len(keys))
+	if all > 250*time.Millisecond {
+		t.Fatalf("a frame takes %v", all)
+	}
+}
+
 func TestIndicatorShots(t *testing.T) {
 	if os.Getenv("CANDLE_SHOTS") == "" {
 		t.Skip("CANDLE_SHOTS names no folder")
