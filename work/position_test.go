@@ -103,7 +103,7 @@ func TestPositionShots(t *testing.T) {
 		clickPlot(tt, a, 620, 200)
 		shot(t, tt, map[bool]string{true: "position-dark", false: "position-light"}[dark])
 	}
-	a, tt := ownerApp()
+	a, tt := whiteCandlesApp()
 	click(t, tt, "多头盈亏比")
 	clickPlot(tt, a, 260, 330)
 	click(t, tt, "空头盈亏比")
@@ -111,7 +111,7 @@ func TestPositionShots(t *testing.T) {
 	click(t, tt, "价格区间")
 	clickPlot(tt, a, 420, 420)
 	clickPlot(tt, a, 520, 300)
-	shot(t, tt, "position-owner")
+	shot(t, tt, "position-white-candles")
 }
 
 // The position is what loses the risk, a part of the account, at the
@@ -162,9 +162,9 @@ func TestPositionAccount(t *testing.T) {
 	}
 }
 
-// ownerApp is testApp as the owner has it: light, white rising and black
+// whiteCandlesApp is testApp with light, white rising and black
 // falling candles on white.
-func ownerApp() (*application, *ui.Tester) {
+func whiteCandlesApp() (*application, *ui.Tester) {
 	a := testApp()
 	a.set.Magnet = false
 	st := &a.set.Chart
@@ -175,7 +175,7 @@ func ownerApp() (*application, *ui.Tester) {
 // The position's zones and labels, and the price range, take colors of
 // their own, as TradingView's: the candles' white would be lost on white.
 func TestPositionColorsShowWhateverTheCandles(t *testing.T) {
-	a, tt := ownerApp()
+	a, tt := whiteCandlesApp()
 	click(t, tt, "多头盈亏比")
 	clickPlot(tt, a, 300, 300)
 	clickPlot(tt, a, 700, 60) // unselected, so the bar is not in the way
@@ -197,7 +197,7 @@ func TestPositionColorsShowWhateverTheCandles(t *testing.T) {
 		}
 	}
 
-	a, tt = ownerApp()
+	a, tt = whiteCandlesApp()
 	click(t, tt, "价格区间")
 	x0, y0 := win(a, 200, 350)
 	x1, y1 := win(a, 320, 200)

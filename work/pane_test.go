@@ -41,7 +41,7 @@ func near8(c color.RGBA, want ui.Color, tol int) bool {
 	return iabs(int(c.R)-int(want.R))+iabs(int(c.G)-int(want.G))+iabs(int(c.B)-int(want.B)) < tol
 }
 
-// White rising candles and black falling ones on white, as the owner has
+// White rising candles and black falling ones on white, as one may set
 // them: MACD's and VOL's bars keep colors of their own, and the volume under
 // the candles gives way where the candles' color would be lost.
 func TestBarsShowWhateverTheCandles(t *testing.T) {
@@ -271,13 +271,13 @@ func TestPaneShots(t *testing.T) {
 	if os.Getenv("CANDLE_SHOTS") == "" {
 		t.Skip("CANDLE_SHOTS names no folder")
 	}
-	// As the owner has it: light, white rising and black falling candles, EMA26 and MACD.
+	// Light, white rising and black falling candles, EMA26 and MACD.
 	a := withIndicators("ema", "ema", "macd")
 	a.set.Indicators = a.set.Indicators[1:]
 	st := &a.set.Chart
 	st.Up, st.Down, st.BorderUp, st.Background, st.Volume = hexColor(ui.Hex("#ffffff")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#ffffff")), false
 	tt := newTester(a, false)
-	shot(t, tt, "owner-light")
+	shot(t, tt, "white-candles-light")
 
 	a = withIndicators("ma", "boll", "macd", "rsi")
 	a.set.Indicators[1].Offset = 10

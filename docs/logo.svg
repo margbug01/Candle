@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="132 128 760 760">
+  <!-- The icon without its tile, for the top bar. -->
+  <defs>
+    <linearGradient id="fire" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc233"/>
+      <stop offset="1" stop-color="#ff6a1a"/>
+    </linearGradient>
+  </defs>
+  <path d="M512 380V460M512 820V874" stroke="#26a69a" stroke-width="40" stroke-linecap="round"/>
+  <rect x="396" y="450" width="232" height="380" rx="40" fill="#26a69a"/>
+  <path d="M512 144C556 210 604 258 604 318C604 368 563 400 512 400C461 400 420 368 420 318C420 258 468 210 512 144Z" fill="url(#fire)"/>
+  <path d="M512 256C533 289 554 310 554 339C554 364 535 380 512 380C489 380 470 364 470 339C470 310 491 289 512 256Z" fill="#ffe7a3"/>
+</svg>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"math"
 	"strconv"
@@ -18,6 +19,19 @@ const (
 	zoomPerNotch   = 1.12
 	axisDrag       = 150 // DIPs dragged down the price axis to widen the prices e times
 )
+
+//go:embed resources/logo.png
+var logoPNG []byte
+
+// logo is the app's icon without its tile, for the top bar: 96 pixels shown
+// at 20 DIPs, sharp on high-DPI screens too.
+var logo = func() *ui.Bitmap {
+	b, err := ui.DecodeBitmap(logoPNG)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}()
 
 func svg(body string) *ui.SVG {
 	return ui.MustParseSVG([]byte("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'>" + body + "</svg>"))
@@ -67,7 +81,7 @@ func (a *application) toolbar(c *ui.Context, t *ui.Theme, k palette) {
 	bar := c.TitleBar()
 	ui.Row(c).FillWidth().Height(titleBarHeight).Shrink(0).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(k.line).Children(func() {
 		ui.Row(c).FillHeight().Shrink(0).Gap(8).AlignItems(ui.Center).Padding(0, 16, 0, 14+bar.Left).DragWindow().Children(func() {
-			ui.Icon(c, candleIcon).Size(18, 18).TextColor(k.accent)
+			ui.Image(c, logo).Size(20, 20)
 			ui.Text(c, "Candle").FontSize(14).FontWeight(600)
 		})
 		divider(c, k)
