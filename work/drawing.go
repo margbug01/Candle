@@ -55,6 +55,8 @@ var drawTools = []drawTool{
 	{"fib", "斐波那契回撤", 2, svg("<path d='M2 3h12M2 6h12M2 8.5h12M2 13h12'/>")},
 	{"range", "价格区间", 2, svg("<path d='M8 3.5v9M5.8 5.5 8 3.2l2.2 2.3M5.8 10.5 8 12.8l2.2-2.3M3 2.5h10M3 13.5h10'/>")},
 	{"text", "文字", 1, svg("<path d='M3 3.5h10M8 3.5v10M6 13.5h4'/>")},
+	{"long", "多头盈亏比", 4, svg("<rect x='2' y='2.5' width='12' height='11' rx='1'/><path d='M2 9.5h12M8 7.5v-3M6.3 6 8 4.3 9.7 6'/>")},
+	{"short", "空头盈亏比", 4, svg("<rect x='2' y='2.5' width='12' height='11' rx='1'/><path d='M2 6.5h12M8 8.5v3M6.3 10 8 11.7 9.7 10'/>")},
 }
 
 func toolOf(kind string) (drawTool, bool) {
@@ -213,6 +215,10 @@ func (a *application) hits(m mapper, d *drawing, x, y float32) bool {
 		return near(x0, y0, x1, y1) || near(x0, y0+off, x1, y1+off)
 	case "rect", "range":
 		return inside(x0, y0, x1, y1)
+	case "long", "short":
+		_, ys := m.xy(d.Pts[2])
+		x3, _ := m.xy(d.Pts[3])
+		return inside(x0, y1, x3, ys)
 	case "fib":
 		if x < min(x0, x1)-hitTolerance || x > max(x0, x1)+hitTolerance {
 			return false
@@ -293,6 +299,10 @@ func (a *application) drawOne(p *ui.Painter, plot ui.Rect, m mapper, k palette, 
 		var path ui.Path
 		path.MoveTo(x0, y0).LineTo(x1, y1)
 		p.StrokePath(&path, w, c)
+	}
+	if isPosition(d.Kind) {
+		a.drawPosition(p, plot, m, k, d)
+		return
 	}
 	x0, y0 := at(d.Pts[0])
 	switch d.Kind {

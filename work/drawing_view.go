@@ -225,6 +225,10 @@ func (a *application) drawInput(ev ui.InputEvent, inPlot bool) bool {
 			a.drag, a.pressX, a.pressY, a.dragged = dragCreate, ev.X, ev.Y, false
 			return true
 		}
+		if isPosition(a.tool) { // one click places the whole box
+			a.finish(position(a.tool, a.newID(), snap(), m))
+			return true
+		}
 		if a.tool != "" {
 			tool, _ := toolOf(a.tool)
 			d := drawing{ID: a.newID(), Kind: a.tool, Pts: make([]point, tool.points), Width: 2}
@@ -318,6 +322,9 @@ func (a *application) dragTo(m mapper, x, y float32) {
 	}
 	if a.handle >= 0 {
 		d.Pts[a.handle] = m.snap(x, y, a.set.Magnet)
+		if isPosition(d.Kind) {
+			fixPosition(d)
+		}
 		return
 	}
 	bars := int(math.Round(float64((x - a.pressX) / m.v.spacing)))
@@ -342,7 +349,7 @@ func (a *application) toolsColumn(c *ui.Context, t *ui.Theme, k palette) {
 			if toolButton(c, t, k, "tool-cursor", "光标", cursorIcon, a.tool == "" && a.creating == nil).Clicked() {
 				a.pickTool("")
 			}
-			for _, group := range [][]int{{0, 1, 2, 3, 4, 5}, {6}, {7, 8}, {9}} {
+			for _, group := range [][]int{{0, 1, 2, 3, 4, 5}, {6}, {7, 8, 10, 11}, {9}} {
 				toolSeparator(c, k)
 				for _, i := range group {
 					tl := drawTools[i]
@@ -439,7 +446,7 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 	ui.Row(c.Key("drawing-bar")).Height(38).Padding(0, 6).Gap(4).AlignItems(ui.Center).
 		Radius(6).Background(k.field).Border(1, k.line).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.25)).Children(func() {
 		ui.Text(c, tool.label).FontSize(12).TextColor(t.TextMuted).Padding(0, 6, 0, 4).SingleLine()
-		if d.Kind != "range" {
+		if d.Kind != "range" && !isPosition(d.Kind) { // those take the up and down colors
 			a.well(c, "画线颜色", d.Color.or(k.accent), func(h hexColor) {
 				a.remember("color:" + id)
 				d.Color = h
@@ -465,6 +472,8 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 				a.save()
 			}).Width(76).MinWidth(76).Tooltip("文字大小") // Select keeps 140 at least otherwise
 		case "range":
+		case "long", "short":
+			fixedText(c, span(ratioText(d), 12, t.Text, 600)).Margin(0, 6)
 		default:
 			widthButtons(c, t, k, "width", d.Width, func(w float64) {
 				a.remember("")
