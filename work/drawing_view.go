@@ -491,7 +491,7 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 					a.save()
 				}
 				ui.Text(c, f.unit).FontSize(12).TextColor(t.TextMuted).Margin(0, 0, 0, 6).SingleLine()
-				ui.NumberInput(c.Key("position-"+f.key), p, f.lo, f.hi, f.step).Width(130).ReadOnly(d.Locked).Label(f.name).Tooltip(f.tip)
+				ui.NumberInput(c.Key("position-"+f.key), p, f.lo, f.hi, f.step).Width(150).Shrink(0).ReadOnly(d.Locked).Label(f.name).Tooltip(f.tip)
 			}
 		default:
 			widthButtons(c, t, k, "width", d.Width, func(w float64) {

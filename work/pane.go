@@ -1,7 +1,9 @@
 package main
 
 import (
+	"cmp"
 	"math"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -359,6 +361,28 @@ func (a *application) overlayTags(y func(float64) float32, text func(float64) st
 			}
 		}
 	})
+	return spreadTags(tags, top+10, bottom-10)
+}
+
+// spreadTags moves labels apart that would cover one another, keeping their
+// order and them between top and bottom, the middles of the first and last
+// places a label can take.
+func spreadTags(tags []axisTag, top, bottom float32) []axisTag {
+	const h = 20
+	slices.SortStableFunc(tags, func(a, b axisTag) int { return cmp.Compare(a.y, b.y) })
+	for i := range tags {
+		tags[i].y = max(tags[i].y, top)
+		if i > 0 {
+			tags[i].y = max(tags[i].y, tags[i-1].y+h)
+		}
+	}
+	for i := len(tags) - 1; i >= 0; i-- { // pushed past the bottom: back up
+		lim := bottom
+		if i < len(tags)-1 {
+			lim = tags[i+1].y - h
+		}
+		tags[i].y = min(tags[i].y, lim)
+	}
 	return tags
 }
 
@@ -439,9 +463,10 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 				c = a.plotBarColor(ind, kind, j, s.out[j], n-1).Alpha(1)
 			}
 			if yy := mid(y(v)); yy >= r.Y && yy <= r.Y+r.H {
-				tags = append(tags, axisTag{min(max(yy, r.Y+10), r.Y+r.H-10), a.valueText(kind, v), c})
+				tags = append(tags, axisTag{yy, a.valueText(kind, v), c})
 			}
 		}
+		tags = spreadTags(tags, r.Y+10, r.Y+r.H-10)
 	}
 	size, textCol := float32(st.TextSize), st.TextColor.or(k.muted)
 	count := max(int(r.H/36), 2)

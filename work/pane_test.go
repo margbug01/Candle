@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"os"
 	"testing"
 	"time"
 
@@ -264,4 +265,54 @@ func TestIndicatorSourceAndOffsetSettings(t *testing.T) {
 		t.Fatalf("MA of the highs: %v, want %v", got, want)
 	}
 	_ = k
+}
+
+func TestPaneShots(t *testing.T) {
+	if os.Getenv("CANDLE_SHOTS") == "" {
+		t.Skip("CANDLE_SHOTS names no folder")
+	}
+	// As the owner has it: light, white rising and black falling candles, EMA26 and MACD.
+	a := withIndicators("ema", "ema", "macd")
+	a.set.Indicators = a.set.Indicators[1:]
+	st := &a.set.Chart
+	st.Up, st.Down, st.BorderUp, st.Background, st.Volume = hexColor(ui.Hex("#ffffff")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#ffffff")), false
+	tt := newTester(a, false)
+	shot(t, tt, "owner-light")
+
+	a = withIndicators("ma", "boll", "macd", "rsi")
+	a.set.Indicators[1].Offset = 10
+	tt = newTester(a, true)
+	_, panes := a.layout(a.boxH - timeH)
+	ax, y := chartLeft(a)+a.plotW+30, chartTop(a)+panes[0].y+panes[0].h/2
+	tt.Scroll(ax, y, 0, -2*notch)
+	tt.Frame()
+	tt.Move(chartLeft(a)+500, y)
+	tt.Frame()
+	tt.Frame()
+	shot(t, tt, "pane-scaled-dark")
+	hoverRow(t, tt, "MA 5")
+	click(t, tt, "指标设置")
+	shot(t, tt, "ma-settings-dark")
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	tt.Frame()
+	hoverRow(t, tt, "MACD 12 26 9")
+	click(t, tt, "指标设置")
+	shot(t, tt, "macd-settings-dark")
+}
+
+// Labels that would cover one another move apart, in order, and stay on
+// the axis.
+func TestSpreadTags(t *testing.T) {
+	got := spreadTags([]axisTag{{y: 105, text: "b"}, {y: 100, text: "a"}, {y: 300, text: "c"}, {y: 108, text: "x"}}, 10, 400)
+	want := []float32{100, 120, 140, 300}
+	for i, tg := range got {
+		if tg.y != want[i] {
+			t.Fatalf("spread to %+v", got)
+		}
+	}
+	got = spreadTags([]axisTag{{y: 395}, {y: 398}, {y: 400}}, 10, 400)
+	if got[0].y != 360 || got[1].y != 380 || got[2].y != 400 {
+		t.Fatalf("at the bottom, spread to %+v", got)
+	}
 }
