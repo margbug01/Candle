@@ -368,9 +368,9 @@ func (a *application) drawOne(p *ui.Painter, plot ui.Rect, m mapper, k palette, 
 // bars and time.
 func (a *application) drawRange(p *ui.Painter, plot ui.Rect, m mapper, k palette, d *drawing, x0, y0, x1, y1 float32, line func(x0, y0, x1, y1, w float32, c ui.Color)) {
 	from, to := d.Pts[0], d.Pts[1]
-	col := k.up
+	col := ui.Hex(barUp)
 	if to.P < from.P {
-		col = k.down
+		col = ui.Hex(barDown)
 	}
 	l, r, top, bottom := min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
 	p.Fill(ui.Rect{X: l, Y: top, W: r - l, H: bottom - top}, col.Alpha(0.15), 0)

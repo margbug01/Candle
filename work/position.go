@@ -96,8 +96,8 @@ func ratioText(d *drawing) string {
 	return "盈亏比 —"
 }
 
-// drawPosition draws the box: the profit in the up color, the loss in the
-// down color, the entry across them, and their labels beyond them.
+// drawPosition draws the box: the profit in green, the loss in red, the
+// entry across them, and their labels beyond them.
 func (a *application) drawPosition(p *ui.Painter, plot ui.Rect, m mapper, k palette, d *drawing) {
 	at := func(pt point) (float32, float32) {
 		x, y := m.xy(pt)
@@ -111,8 +111,9 @@ func (a *application) drawPosition(p *ui.Painter, plot ui.Rect, m mapper, k pale
 	box := func(y0, y1 float32) ui.Rect {
 		return ui.Rect{X: l, Y: min(y0, y1), W: r - l, H: float32(math.Abs(float64(y1 - y0)))}
 	}
-	p.Fill(box(ye, yt), k.up.Alpha(0.2), 0)
-	p.Fill(box(ye, ys), k.down.Alpha(0.2), 0)
+	profit, loss := ui.Hex(barUp), ui.Hex(barDown)
+	p.Fill(box(ye, yt), profit.Alpha(0.2), 0)
+	p.Fill(box(ye, ys), loss.Alpha(0.2), 0)
 	p.Line(l, ye, r, ye, 1, k.muted)
 
 	entry := d.Pts[0].P
@@ -148,8 +149,8 @@ func (a *application) drawPosition(p *ui.Painter, plot ui.Rect, m mapper, k pale
 		p.Fill(ui.Rect{X: cx - bw/2, Y: by, W: bw, H: bh}, c, 3)
 		p.RichText(cx-w/2, by+3, 0, sp)
 	}
-	tag("止盈 "+move(d.Pts[1].P), k.up, yt, yt < ye)
-	tag("止损 "+move(d.Pts[2].P), k.down, ys, ys < ye)
+	tag("止盈 "+move(d.Pts[1].P), profit, yt, yt < ye)
+	tag("止损 "+move(d.Pts[2].P), loss, ys, ys < ye)
 	text := ratioText(d)
 	if sized {
 		text += "  数量 " + qtyText(qty)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image/color"
 	"math"
 	"os"
 	"path/filepath"
@@ -102,6 +103,15 @@ func TestPositionShots(t *testing.T) {
 		clickPlot(tt, a, 620, 200)
 		shot(t, tt, map[bool]string{true: "position-dark", false: "position-light"}[dark])
 	}
+	a, tt := ownerApp()
+	click(t, tt, "多头盈亏比")
+	clickPlot(tt, a, 260, 330)
+	click(t, tt, "空头盈亏比")
+	clickPlot(tt, a, 620, 200)
+	click(t, tt, "价格区间")
+	clickPlot(tt, a, 420, 420)
+	clickPlot(tt, a, 520, 300)
+	shot(t, tt, "position-owner")
 }
 
 // The position is what loses the risk, a part of the account, at the
@@ -149,5 +159,56 @@ func TestPositionAccount(t *testing.T) {
 	press(tt, ui.Ctrl, ui.KeyZ)
 	if d := drawings(a)[0]; d.Account != 0 {
 		t.Fatalf("one Ctrl+Z after typing the account: %v", d.Account)
+	}
+}
+
+// ownerApp is testApp as the owner has it: light, white rising and black
+// falling candles on white.
+func ownerApp() (*application, *ui.Tester) {
+	a := testApp()
+	a.set.Magnet = false
+	st := &a.set.Chart
+	st.Up, st.Down, st.BorderUp, st.Background, st.Volume = hexColor(ui.Hex("#ffffff")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#ffffff")), false
+	return a, newTester(a, false)
+}
+
+// The position's zones and labels, and the price range, take colors of
+// their own, as TradingView's: the candles' white would be lost on white.
+func TestPositionColorsShowWhateverTheCandles(t *testing.T) {
+	a, tt := ownerApp()
+	click(t, tt, "多头盈亏比")
+	clickPlot(tt, a, 300, 300)
+	clickPlot(tt, a, 700, 60) // unselected, so the bar is not in the way
+	img := tt.Image()
+	plot := ui.Rect{X: chartLeft(a), Y: chartTop(a), W: a.plotW, H: a.plotH}
+	white := ui.Hex("#ffffff")
+	up, down := ui.Hex(barUp), ui.Hex(barDown)
+	blend := func(c ui.Color, alpha float32) ui.Color { return white.Mix(c, alpha) }
+	count := func(want ui.Color, tol int) int {
+		return countPixels(img, plot, func(c color.RGBA) bool { return near8(c, want, tol) })
+	}
+	for _, f := range []struct {
+		what string
+		c    ui.Color
+		tol  int
+	}{{"the profit's zone", blend(up, 0.2), 12}, {"the loss's zone", blend(down, 0.2), 12}, {"the take-profit's label", up, 30}, {"the stop-loss's label", down, 30}} {
+		if n := count(f.c, f.tol); n < 300 {
+			t.Errorf("%s: %d pixels of its color", f.what, n)
+		}
+	}
+
+	a, tt = ownerApp()
+	click(t, tt, "价格区间")
+	x0, y0 := win(a, 200, 350)
+	x1, y1 := win(a, 320, 200)
+	tt.Press(x0, y0)
+	tt.Move((x0+x1)/2, (y0+y1)/2)
+	tt.Move(x1, y1)
+	tt.Release(x1, y1)
+	tt.Frame()
+	clickPlot(tt, a, 700, 60)
+	img = tt.Image()
+	if n := countPixels(img, plot, func(c color.RGBA) bool { return near8(c, up, 30) }); n < 300 {
+		t.Errorf("a rising price range: %d pixels of its color", n)
 	}
 }

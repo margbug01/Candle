@@ -23,8 +23,9 @@ const (
 	plotVolume // bars up from the pane's bottom, rising or falling as the candles
 )
 
-// The bars' colors, TradingView's: of their own, not the candles', which
-// can be lost on the background (white rising candles on white).
+// The colors of the bars, of the position boxes and of the price range,
+// TradingView's: of their own, not the candles', which can be lost on the
+// background (white rising candles on white).
 const (
 	barUp   = "#26a69a"
 	barDown = "#ef5350"
