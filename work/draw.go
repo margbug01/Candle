@@ -190,13 +190,16 @@ func (a *application) barColor(i int, k palette) ui.Color {
 	return k.down
 }
 
-// drawChart paints the bars in r: the plot, the price axis on its right and
-// the time axis below, as the settings have them. hx, hy is the pointer,
-// relative to r, when over.
+// drawChart paints the bars in r: the candles' pane, the indicators' panes
+// below it, the price axis on the right of each and the time axis under
+// them all, as the settings have them. hx, hy is the pointer, relative to r,
+// when over.
 func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy float32, over bool) {
 	st := &a.set.Chart
-	plot := ui.Rect{X: r.X, Y: r.Y, W: r.W - axisW, H: r.H - timeH}
-	a.plotW, a.plotH = plot.W, plot.H
+	bottom := r.Y + r.H - timeH // the top of the time axis
+	mainH, panes := a.layout(r.H - timeH)
+	plot := ui.Rect{X: r.X, Y: r.Y, W: r.W - axisW, H: mainH}
+	a.plotW, a.plotH, a.boxH = plot.W, plot.H, r.H
 	s := p.Scale()
 	px := 1 / s
 	// mid is the middle of the device pixel at v, where a one-pixel line is sharp.
@@ -204,7 +207,15 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 	snap := func(v float32) float32 { return float32(math.Round(float64(v*s))) / s }
 	p.Fill(r, st.Background.or(k.bg), 0)
 	p.Line(mid(plot.X+plot.W), r.Y, mid(plot.X+plot.W), r.Y+r.H, px, k.line)
-	p.Line(r.X, mid(plot.Y+plot.H), r.X+r.W, mid(plot.Y+plot.H), px, k.line)
+	p.Line(r.X, mid(bottom), r.X+r.W, mid(bottom), px, k.line)
+	for i, pn := range panes {
+		yy := mid(r.Y + pn.y)
+		if a.drag == dragSep && a.sep == i || a.drag == dragNone && over && math.Abs(float64(hy-pn.y)) <= sepGrip {
+			p.Fill(ui.Rect{X: r.X, Y: yy - 1.5, W: r.W, H: 3}, k.accent.Alpha(0.6), 0)
+		} else {
+			p.Line(r.X, yy, r.X+r.W, yy, px, k.line)
+		}
+	}
 	n := len(a.bars)
 	if n == 0 || plot.W <= 0 || plot.H <= 0 {
 		return
@@ -215,12 +226,13 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 	if to < from {
 		return
 	}
-	top, bottom := st.band()
-	ax := axis{h: plot.H, top: top, bottom: bottom, log: st.Scale == "log"}
+	bandTop, bandBottom := st.band()
+	ax := axis{h: plot.H, top: bandTop, bottom: bandBottom, log: st.Scale == "log"}
 	a.axis = ax
 	sc := a.scale
 	if !sc.manual {
 		sc.lo, sc.hi = priceRange(a.bars[from : to+1])
+		sc.lo, sc.hi = a.overlayRange(from, to, sc.lo, sc.hi, ax.log)
 	}
 	a.shown = sc
 	dm := mapper{v: v, w: plot.W, h: plot.H, bars: a.bars, iv: a.intervalMs(), sc: sc, ax: ax}
@@ -323,13 +335,13 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 			continue
 		}
 		if st.VertGrid {
-			p.Line(xx, plot.Y, xx, plot.Y+plot.H, px, vgrid)
+			p.Line(xx, plot.Y, xx, bottom, px, vgrid)
 		}
 		weight := 0
 		if t.level >= 2 {
 			weight = 600
 		}
-		label(p, xx, plot.Y+plot.H+timeH/2, span(t.text, size, textCol, weight), alignCenter)
+		label(p, xx, bottom+timeH/2, span(t.text, size, textCol, weight), alignCenter)
 	}
 	if st.Watermark {
 		base, quote := a.names(a.symbol)
@@ -347,6 +359,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 	if w := int(math.Round(float64(bw * s))); w > 1 && w%2 == 0 {
 		bw -= px // odd, so the wick runs down its middle
 	}
+	xAt := func(i int) float32 { return plot.X + v.x(i, plot.W, n) }
 	p.Clip(plot, 0, func() {
 		for i := from; i <= to && st.Volume && maxVol > 0; i++ {
 			h := float32(a.bars[i].V/maxVol) * plot.H * 0.18
@@ -354,6 +367,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 			p.Fill(ui.Rect{X: xc - bw/2, Y: plot.Y + plot.H - h, W: bw, H: h}, a.barColor(i, k).Alpha(0.3), 0)
 		}
 		a.drawBars(p, plot, k, v, from, to, y, bw, px, mid, snap)
+		a.drawOverlays(p, xAt, y, from, to)
 		if showLine {
 			dash(p, plot.X, mid(y(last.C)), plot.X+plot.W, mid(y(last.C)), px, lastCol, "")
 		}
@@ -379,23 +393,39 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 		p.After(time.Duration(left%1000+10) * time.Millisecond)
 	}
 
-	hover := n - 1
-	if over && hx >= 0 && hx < plot.W && hy >= 0 && hy < plot.H {
-		hover = min(max(int(math.Round(float64(v.index(hx, plot.W, n)))), 0), n-1)
-		cx, cy := mid(plot.X+v.x(hover, plot.W, n)), mid(plot.Y+hy)
+	scales := make([]paneScale, len(panes))
+	for i, pn := range panes {
+		scales[i] = a.drawPane(p, ui.Rect{X: plot.X, Y: r.Y + pn.y, W: plot.W, H: pn.h}, &a.set.Indicators[pn.idx], xAt, from, to, k, bw, px, mid)
+	}
+
+	// The crosshair runs down every pane; its line across, and the label on
+	// the axis, are in the pane the pointer is in.
+	if over && hx >= 0 && hx < plot.W && hy >= 0 && r.Y+hy < bottom {
+		hover := a.hoverBar(hx, hy, over)
+		cx, cy := mid(plot.X+v.x(hover, plot.W, n)), mid(r.Y+hy)
 		cross := st.Cross.or(k.cross)
-		dash(p, cx, plot.Y, cx, plot.Y+plot.H, px, cross, st.CrossStyle)
-		dash(p, plot.X, cy, plot.X+plot.W, cy, px, cross, st.CrossStyle)
-		cly := min(max(cy, plot.Y+10), plot.Y+plot.H-10) // the label stays on the axis
-		p.Fill(ui.Rect{X: plot.X + plot.W, Y: cly - 10, W: axisW, H: 20}, k.label, 2)
-		label(p, axisX, cly, span(priceText(priceAt(cy)), size+0.5, k.onLabel, 0), alignStart)
+		dash(p, cx, plot.Y, cx, bottom, px, cross, st.CrossStyle)
+		across := func(top, h float32, text string) {
+			dash(p, plot.X, cy, plot.X+plot.W, cy, px, cross, st.CrossStyle)
+			cly := min(max(cy, top+10), top+h-10) // the label stays on the axis
+			p.Fill(ui.Rect{X: plot.X + plot.W, Y: cly - 10, W: axisW, H: 20}, k.label, 2)
+			label(p, axisX, cly, span(text, size+0.5, k.onLabel, 0), alignStart)
+		}
+		if cy < plot.Y+plot.H {
+			across(plot.Y, plot.H, priceText(priceAt(cy)))
+		}
+		for i, pn := range panes {
+			if top := r.Y + pn.y; cy >= top && cy < top+pn.h {
+				ps := scales[i]
+				across(top, pn.h, a.valueText(ps.k, ps.sc.at(cy-top, ps.ax)))
+			}
+		}
 		ts := span(st.crossTime(a.bars[hover].T, ivMs), size+0.5, k.onLabel, 0)
 		w, _ := p.MeasureText(0, ts)
 		bx := min(max(cx-w/2-8, plot.X), plot.X+plot.W-w-16)
-		p.Fill(ui.Rect{X: bx, Y: plot.Y + plot.H + 3, W: w + 16, H: timeH - 6}, k.label, 2)
-		label(p, bx+8, plot.Y+plot.H+timeH/2, ts, alignStart)
+		p.Fill(ui.Rect{X: bx, Y: bottom + 3, W: w + 16, H: timeH - 6}, k.label, 2)
+		label(p, bx+8, bottom+timeH/2, ts, alignStart)
 	}
-	a.legend(p, plot, k, hover, d)
 }
 
 func covered(y float32, taken [][2]float32) bool {
@@ -470,21 +500,20 @@ func (a *application) drawBars(p *ui.Painter, plot ui.Rect, k palette, v view, f
 	}
 }
 
-// legend names the market over the plot and reads out bar i: the one under
-// the crosshair, else the newest; the status line settings pick the parts.
-func (a *application) legend(p *ui.Painter, plot ui.Rect, k palette, i, d int) {
+// legendSpans are the market's name and bar i read out, as the legend over
+// the candles shows them: the bar under the crosshair, else the newest; the
+// status line settings pick the parts.
+func (a *application) legendSpans(k palette, i int) (title, spans []ui.Span) {
 	st := &a.set.Chart
 	b := a.bars[i]
+	d := a.chartDecimals(a.bars[len(a.bars)-1].C)
 	base, quote := a.names(a.symbol)
-	x, y := plot.X+14, plot.Y+10
 	if st.Title {
 		iv, _ := intervalOf(a.interval)
-		_, h := p.RichText(x, y, 0,
-			ui.Span{Text: base + suffix(quote), Size: 14, Weight: 600, Color: k.text},
-			ui.Span{Text: "  ·  " + iv.label + "  ·  Binance", Size: 12, Color: k.muted})
-		y += h + 4
+		title = []ui.Span{
+			{Text: base + suffix(quote), Size: 14, Weight: 600, Color: k.text},
+			{Text: "  ·  " + iv.label + "  ·  Binance", Size: 12, Color: k.muted}}
 	}
-	var spans []ui.Span
 	if st.Values {
 		col := a.inkColor(i, k)
 		for _, f := range []struct {
@@ -508,9 +537,7 @@ func (a *application) legend(p *ui.Painter, plot ui.Rect, k palette, i, d int) {
 	if st.VolumeValue {
 		spans = append(spans, ui.Span{Text: "量 ", Size: 12, Color: k.muted}, span(formatVolume(b.V)+" "+base, 12, k.text, 0))
 	}
-	if len(spans) > 0 {
-		p.RichText(x, y, 0, spans...)
-	}
+	return title, spans
 }
 
 func suffix(quote string) string {

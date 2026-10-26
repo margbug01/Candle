@@ -164,7 +164,11 @@ func priceTicks(lo, hi float64, n int, log bool) []float64 {
 	if !log || lo <= 0 || float64(n)/math.Log10(hi/lo) > 12 {
 		step := niceStep(hi-lo, n)
 		for i := math.Ceil(lo / step); i*step <= hi; i++ {
-			out = append(out, i*step)
+			v := i * step
+			if v == 0 { // not -0, which reads "-0"
+				v = 0
+			}
+			out = append(out, v)
 		}
 		return out
 	}

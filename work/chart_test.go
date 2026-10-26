@@ -236,3 +236,12 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("btc/usdt: %q", got)
 	}
 }
+
+// A scale across zero reads 0 there, not -0.
+func TestPriceTicksZero(t *testing.T) {
+	for _, v := range priceTicks(-12, 110, 4, false) {
+		if v == 0 && math.Signbit(v) {
+			t.Fatalf("%v holds -0, which reads %q", priceTicks(-12, 110, 4, false), formatPrice(v, 0))
+		}
+	}
+}

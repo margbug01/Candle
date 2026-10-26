@@ -27,6 +27,7 @@ const (
 	dragAxis    // the price axis
 	dragCreate  // a drawing being drawn
 	dragDrawing // a drawing, or one of its points
+	dragSep     // the line above an indicator's pane
 )
 
 // application is the window's state. Everything here belongs to the main
@@ -43,7 +44,8 @@ type application struct {
 	symbol, interval string
 	bars             []market.Bar
 	view             view
-	plotW, plotH     float32
+	plotW, plotH     float32 // the candles' pane
+	boxH             float32 // the whole chart, the time axis too
 	gen              int
 	ctx              context.Context
 	stop             context.CancelFunc
@@ -53,8 +55,10 @@ type application struct {
 	olderFailed      time.Time
 	err              string
 	stream           int
-	drag             int // dragNone, dragChart or dragAxis
+	drag             int // dragNone, dragChart…
 	dragX, dragY     float32
+	dragPane         bool   // the chart dragged from an indicator's pane
+	sep              int    // the pane whose top line is dragged
 	scale            prices // the price axis as set: automatic unless scaled by hand
 	shown            prices // the prices the last frame showed
 	axis             axis   // how the last frame laid them out
@@ -94,6 +98,19 @@ type application struct {
 	clip           *drawing    // what Ctrl+C copied, and on which market
 	clipSym        string
 
+	// The indicators: their values, the list to add them from and the
+	// dialog setting one, with it as it was, for 取消. later is what the
+	// frame being built changes once it is built.
+	series     map[int64]*series
+	indList    bool
+	indQuery   string
+	indFocus   bool
+	indDialog  bool
+	indEditing bool
+	indEdit    int64
+	indBefore  indicator
+	later      []func()
+
 	// The settings dialog: open, and the style as it was, for 取消.
 	dialog, editing bool
 	before          style
@@ -111,6 +128,7 @@ func newApplication(set settings, file string, bin market.Binance, post func(fun
 		quotes:    map[string]market.Ticker{},
 		picks:     map[string]*choice[string]{},
 		colors:    map[string]*choice[ui.Color]{},
+		series:    map[int64]*series{},
 		scaleMode: set.Chart.Scale, homeShown: float32(set.Chart.RightBars),
 		textBox: map[int64]ui.Rect{},
 		nextID:  maxDrawingID(set.Drawings),

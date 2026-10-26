@@ -86,16 +86,7 @@ func (a *application) settingsDialog(c *ui.Context, t *ui.Theme, k palette) {
 		panel.Width(720).Height(min(680, wh-48)).Radius(10).Background(k.bg).Border(1, k.line).
 			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.35)).Label("图表设置")
 		ui.Column(c).FillWidth().FillHeight().Children(func() {
-			ui.Row(c).FillWidth().Height(56).Shrink(0).Padding(0, 14, 0, 24).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "设置").FontSize(18).FontWeight(600).Grow(1)
-				x := ui.ButtonBase(c.Key("settings-close")).Size(30, 30).Center().Radius(6).Cursor(ui.CursorPointer).Label("关闭设置")
-				if x.Hovered() {
-					x.Background(k.hover)
-				}
-				if x.Children(func() { ui.Icon(c, clearIcon).Size(14, 14).TextColor(t.TextMuted) }).Clicked() {
-					a.closeSettings(false)
-				}
-			})
+			dialogHeader(c, t, k, "设置", "关闭设置", func() { a.closeSettings(false) })
 			ui.Row(c).FillWidth().Grow(1).MinHeight(0).Children(func() {
 				ui.Column(c).Width(168).Shrink(0).FillHeight().Padding(4, 10, 0, 12).Gap(2).Children(func() {
 					for i, pg := range settingsPages {

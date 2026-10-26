@@ -47,7 +47,19 @@ func (a *application) render(c *ui.Context) {
 			a.watchlist(c, t, k)
 		})
 		a.settingsDialog(c, t, k)
+		a.indicatorsDialog(c, t, k)
+		a.indicatorDialog(c, t, k)
 	})
+	// What clicks in this frame do to the lists it was built from, now that
+	// it is built; and a frame to show it.
+	if len(a.later) > 0 {
+		later := a.later
+		a.later = nil
+		for _, f := range later {
+			f()
+		}
+		c.Invalidate()
+	}
 }
 
 // toolbar sits in the title bar: the market, the bar sizes and the stream's state.
@@ -66,6 +78,8 @@ func (a *application) toolbar(c *ui.Context, t *ui.Theme, k palette) {
 				a.intervalButton(c, t, k, iv)
 			}
 		})
+		divider(c, k)
+		a.indicatorsButton(c, t, k)
 		ui.Box(c).Grow(1).FillHeight().DragWindow()
 		a.gearButton(c, t, k)
 		a.status(c, t, k)
@@ -165,6 +179,8 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 	hx, hy, over := box.PointerPosition()
 	cursor := ui.CursorCrosshair
 	switch {
+	case a.drag == dragSep || a.drag == dragNone && over && len(a.bars) > 0 && a.sepAt(hy) >= 0:
+		cursor = ui.CursorResizeRow
 	case a.drag == dragChart || (a.drag == dragDrawing && a.handle < 0):
 		cursor = ui.CursorGrabbing
 	case a.drag == dragDrawing:
@@ -201,6 +217,7 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 		a.latestButton(c, k)
 	}
 	if len(a.bars) > 0 {
+		a.legends(c, t, k, a.hoverBar(hx, hy, over))
 		a.scaleButtons(c, k, over && hx > a.plotW)
 		a.drawingBar(c, t, k)
 	}
@@ -321,20 +338,24 @@ func (a *application) resetView() {
 // sideways swipe on a touchpad pans. Over the price axis the wheel, and a drag
 // up or down, scale the prices, which then stay put, the chart dragging them
 // up and down too, until a double click: on the axis that only fits them to
-// the bars again, on the chart it goes back to the newest bar as well.
+// the bars again, on the chart it goes back to the newest bar as well. In an
+// indicator's pane it is the same, but that its prices always fit; the
+// lines between panes move.
 func (a *application) chartInput(ev ui.InputEvent) bool {
 	n := len(a.bars)
 	if n == 0 || a.plotW <= 0 {
 		return false
 	}
+	inMain := ev.Y < a.plotH
 	onAxis := ev.X > a.plotW
-	corner := onAxis && ev.Y >= a.plotH // under the price axis, the auto switch's
-	if a.drawInput(ev, !onAxis && ev.Y < a.plotH) {
+	corner := onAxis && ev.Y >= a.boxH-timeH // under the price axes, the auto switch's
+	paneAxis := onAxis && !inMain && !corner
+	if a.paneInput(ev) || a.drawInput(ev, !onAxis && inMain) {
 		return true
 	}
 	switch ev.Kind {
 	case ui.InputPointerDown:
-		if ev.Button != 0 || corner {
+		if ev.Button != 0 || corner || paneAxis {
 			return false
 		}
 		if ev.Clicks >= 2 {
@@ -348,7 +369,7 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 		if onAxis && !a.manualScale() {
 			return false
 		}
-		a.drag, a.dragX, a.dragY = dragChart, ev.X, ev.Y
+		a.drag, a.dragX, a.dragY, a.dragPane = dragChart, ev.X, ev.Y, !inMain && ev.Y < a.boxH-timeH
 		if onAxis {
 			a.drag = dragAxis
 		}
@@ -368,7 +389,7 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 			return true
 		}
 		a.view.pan(dx)
-		if a.scale.manual {
+		if a.scale.manual && !a.dragPane {
 			a.scale.pan(dy, a.axis)
 		}
 	case ui.InputPointerUp:
@@ -377,7 +398,7 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 		}
 		a.drag = dragNone
 	case ui.InputScroll:
-		if corner {
+		if corner || paneAxis {
 			return false
 		}
 		if onAxis {

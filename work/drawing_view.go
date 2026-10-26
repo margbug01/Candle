@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"slices"
 	"strconv"
@@ -467,22 +466,11 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 			}).Width(76).MinWidth(76).Tooltip("文字大小") // Select keeps 140 at least otherwise
 		case "range":
 		default:
-			for _, w := range []float64{1, 2, 3, 4} {
-				b := ui.ButtonBase(c.Key(fmt.Sprintf("width-%g", w))).Size(28, 28).Center().Radius(4).Cursor(ui.CursorPointer).
-					Label(fmt.Sprintf("线宽 %g", w)).Tooltip(fmt.Sprintf("线宽 %g", w))
-				switch {
-				case d.Width == w:
-					b.Background(k.chosen)
-				case b.Hovered():
-					b.Background(k.hover)
-				}
-				b.Children(func() { ui.Box(c).Width(14).Height(float32(w)).Background(t.Text) })
-				if b.Clicked() && d.Width != w {
-					a.remember("")
-					d.Width = w
-					a.save()
-				}
-			}
+			widthButtons(c, t, k, "width", d.Width, func(w float64) {
+				a.remember("")
+				d.Width = w
+				a.save()
+			})
 		}
 		if d.Kind == "hline" || d.Kind == "hray" {
 			p, picked, changed := a.pricePick.bind(d.Pts[0].P)
@@ -518,7 +506,7 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 // Ctrl+Y, Ctrl+C and Ctrl+V undo, redo, copy and paste drawings. A text
 // input with the focus takes all of those keys first, so typing edits text.
 func (a *application) drawingShortcuts(c *ui.Context) {
-	if a.dialog {
+	if a.dialog || a.indList || a.indDialog {
 		return
 	}
 	if a.creating != nil || a.tool != "" || a.sel != 0 {

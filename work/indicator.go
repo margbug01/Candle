@@ -44,6 +44,8 @@ type indKind struct {
 	plots            []plotDef
 	state            int       // arrays of working values kept after the plots'
 	levels           []float64 // dashed lines across the pane
+	band             bool      // the space between the two levels shaded
+	fill             []int     // two plots the space between is shaded
 	decimals         int       // the values': -1 the prices', -2 volumes, else fixed
 	calc             func(b []market.Bar, p []float64, out [][]float64, from int)
 }
@@ -59,7 +61,8 @@ var indKinds = []indKind{
 		plots:   []plotDef{{"EMA", "#f0b90b", plotLine}}, calc: calcEMA},
 	{key: "boll", short: "BOLL", name: "布林带", alias: "BB Bollinger", decimals: -1,
 		params: []paramDef{{"周期", 20, 1, 500, 1}, {"倍数", 2, 0.1, 10, 0.1}},
-		plots:  []plotDef{{"中轨", "#ff6d00", plotLine}, {"上轨", "#2962ff", plotLine}, {"下轨", "#2962ff", plotLine}}, calc: calcBOLL},
+		plots:  []plotDef{{"中轨", "#ff6d00", plotLine}, {"上轨", "#2962ff", plotLine}, {"下轨", "#2962ff", plotLine}},
+		fill:   []int{1, 2}, calc: calcBOLL},
 	{key: "macd", short: "MACD", name: "指数平滑异同移动平均线", pane: true, decimals: -1,
 		params: []paramDef{{"快线", 12, 1, 500, 1}, {"慢线", 26, 1, 500, 1}, {"信号线", 9, 1, 500, 1}},
 		plots:  []plotDef{{"DIF", "#2962ff", plotLine}, {"DEA", "#ff6d00", plotLine}, {"柱", "", plotHist}},
@@ -67,7 +70,7 @@ var indKinds = []indKind{
 	{key: "rsi", short: "RSI", name: "相对强弱指数", pane: true, decimals: 2,
 		params: []paramDef{{"周期", 14, 1, 500, 1}},
 		plots:  []plotDef{{"RSI", "#7e57c2", plotLine}},
-		state:  2, levels: []float64{70, 30}, calc: calcRSI},
+		state:  2, levels: []float64{70, 30}, band: true, calc: calcRSI},
 	{key: "kdj", short: "KDJ", name: "随机指标", alias: "Stochastic", pane: true, decimals: 2,
 		params: []paramDef{{"周期", 9, 1, 500, 1}, {"K 平滑", 3, 1, 100, 1}, {"D 平滑", 3, 1, 100, 1}},
 		plots:  []plotDef{{"K", "#2962ff", plotLine}, {"D", "#ff9800", plotLine}, {"J", "#e040fb", plotLine}},
@@ -134,7 +137,7 @@ func (ind *indicator) fix() bool {
 	switch {
 	case !k.pane:
 		ind.Height = 0
-	case ind.Height < 0.05 || ind.Height > 0.8 || math.IsNaN(ind.Height):
+	case ind.Height < 0.02 || ind.Height > 0.9 || math.IsNaN(ind.Height):
 		ind.Height = defaultPaneHeight
 	}
 	return true
