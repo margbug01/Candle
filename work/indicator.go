@@ -20,14 +20,24 @@ import (
 const (
 	plotLine   = iota
 	plotHist   // bars up or down from zero, as MACD's histogram
-	plotVolume // bars up from the pane's bottom, colored as the candles
+	plotVolume // bars up from the pane's bottom, rising or falling as the candles
+)
+
+// The bars' colors, TradingView's: of their own, not the candles', which
+// can be lost on the background (white rising candles on white).
+const (
+	barUp   = "#26a69a"
+	barDown = "#ef5350"
 )
 
 type plotDef struct {
 	name  string // as the legend and the settings name it
-	color string // the default
+	color string // the default; a bar plot's above zero, or rising
+	down  string // a bar plot's below zero, or falling
 	style int
 }
+
+func line(name, color string) plotDef { return plotDef{name: name, color: color, style: plotLine} }
 
 type paramDef struct {
 	name              string
@@ -47,37 +57,61 @@ type indKind struct {
 	band             bool      // the space between the two levels shaded
 	fill             []int     // two plots the space between is shaded
 	decimals         int       // the values': -1 the prices', -2 volumes, else fixed
-	calc             func(b []market.Bar, p []float64, out [][]float64, from int)
+	source, offset   bool      // what it is worked out from can be picked; it can be drawn shifted
+	calc             func(b []market.Bar, src func(int) float64, p []float64, out [][]float64, from int)
+}
+
+// sources are what a kind can be worked out from, after TradingView's.
+var sources = []option{{"", "收盘价"}, {"open", "开盘价"}, {"high", "最高价"}, {"low", "最低价"},
+	{"hl2", "(高+低)/2"}, {"hlc3", "(高+低+收)/3"}, {"ohlc4", "(开+高+低+收)/4"}}
+
+// source is bar i's value as key picks it.
+func source(b []market.Bar, key string) func(int) float64 {
+	switch key {
+	case "open":
+		return func(i int) float64 { return b[i].O }
+	case "high":
+		return func(i int) float64 { return b[i].H }
+	case "low":
+		return func(i int) float64 { return b[i].L }
+	case "hl2":
+		return func(i int) float64 { return (b[i].H + b[i].L) / 2 }
+	case "hlc3":
+		return func(i int) float64 { return (b[i].H + b[i].L + b[i].C) / 3 }
+	case "ohlc4":
+		return func(i int) float64 { return (b[i].O + b[i].H + b[i].L + b[i].C) / 4 }
+	}
+	return func(i int) float64 { return b[i].C }
 }
 
 var indKinds = []indKind{
-	{key: "ma", short: "MA", name: "移动平均线", alias: "均线 SMA", decimals: -1,
+	{key: "ma", short: "MA", name: "移动平均线", alias: "均线 SMA", decimals: -1, source: true, offset: true,
 		params:  []paramDef{{"周期", 5, 1, 1000, 1}},
 		presets: []float64{5, 10, 20, 30, 60, 120},
-		plots:   []plotDef{{"MA", "#f0b90b", plotLine}}, calc: calcMA},
-	{key: "ema", short: "EMA", name: "指数移动平均线", alias: "均线", decimals: -1,
+		plots:   []plotDef{line("MA", "#f0b90b")}, calc: calcMA},
+	{key: "ema", short: "EMA", name: "指数移动平均线", alias: "均线", decimals: -1, source: true, offset: true,
 		params:  []paramDef{{"周期", 12, 1, 1000, 1}},
 		presets: []float64{12, 26, 50, 100, 200},
-		plots:   []plotDef{{"EMA", "#f0b90b", plotLine}}, calc: calcEMA},
-	{key: "boll", short: "BOLL", name: "布林带", alias: "BB Bollinger", decimals: -1,
+		plots:   []plotDef{line("EMA", "#f0b90b")}, calc: calcEMA},
+	{key: "boll", short: "BOLL", name: "布林带", alias: "BB Bollinger", decimals: -1, source: true, offset: true,
 		params: []paramDef{{"周期", 20, 1, 500, 1}, {"倍数", 2, 0.1, 10, 0.1}},
-		plots:  []plotDef{{"中轨", "#ff6d00", plotLine}, {"上轨", "#2962ff", plotLine}, {"下轨", "#2962ff", plotLine}},
+		plots:  []plotDef{line("中轨", "#ff6d00"), line("上轨", "#2962ff"), line("下轨", "#2962ff")},
 		fill:   []int{1, 2}, calc: calcBOLL},
-	{key: "macd", short: "MACD", name: "指数平滑异同移动平均线", pane: true, decimals: -1,
+	{key: "macd", short: "MACD", name: "指数平滑异同移动平均线", pane: true, decimals: -1, source: true,
 		params: []paramDef{{"快线", 12, 1, 500, 1}, {"慢线", 26, 1, 500, 1}, {"信号线", 9, 1, 500, 1}},
-		plots:  []plotDef{{"DIF", "#2962ff", plotLine}, {"DEA", "#ff6d00", plotLine}, {"柱", "", plotHist}},
+		plots:  []plotDef{line("DIF", "#2962ff"), line("DEA", "#ff6d00"), {"柱", barUp, barDown, plotHist}},
 		state:  2, levels: []float64{0}, calc: calcMACD},
-	{key: "rsi", short: "RSI", name: "相对强弱指数", pane: true, decimals: 2,
+	{key: "rsi", short: "RSI", name: "相对强弱指数", pane: true, decimals: 2, source: true,
 		params: []paramDef{{"周期", 14, 1, 500, 1}},
-		plots:  []plotDef{{"RSI", "#7e57c2", plotLine}},
+		plots:  []plotDef{line("RSI", "#7e57c2")},
 		state:  2, levels: []float64{70, 30}, band: true, calc: calcRSI},
 	{key: "kdj", short: "KDJ", name: "随机指标", alias: "Stochastic", pane: true, decimals: 2,
 		params: []paramDef{{"周期", 9, 1, 500, 1}, {"K 平滑", 3, 1, 100, 1}, {"D 平滑", 3, 1, 100, 1}},
-		plots:  []plotDef{{"K", "#2962ff", plotLine}, {"D", "#ff9800", plotLine}, {"J", "#e040fb", plotLine}},
+		plots:  []plotDef{line("K", "#2962ff"), line("D", "#ff9800"), line("J", "#e040fb")},
 		levels: []float64{80, 20}, calc: calcKDJ},
 	{key: "vol", short: "VOL", name: "成交量", alias: "Volume", pane: true, decimals: -2,
 		params: []paramDef{{"均线周期", 20, 0, 500, 1}},
-		plots:  []plotDef{{"成交量", "", plotVolume}, {"均线", "#2962ff", plotLine}}, calc: calcVOL},
+		plots:  []plotDef{{"成交量", barUp, barDown, plotVolume}, line("均线", "#2962ff")}, calc: calcVOL},
 }
 
 // lineColors take turns among the instances of a one-line kind.
@@ -98,14 +132,18 @@ type indicator struct {
 	Kind   string
 	Params []float64
 	Colors []hexColor // by plot; unset, the kind's
+	Downs  []hexColor // by plot, a bar plot's second color
 	Widths []float64  // by plot
 	Hidden bool
 	Height float64 `json:",omitempty"` // a pane's share of the chart's height
+	Source string  `json:",omitempty"` // a key of sources, "" the close
+	Offset float64 `json:",omitempty"` // bars the plots are drawn to the right
 }
 
 const (
 	defaultPaneHeight = 0.2
 	maxLineWidth      = 4
+	maxOffset         = 500
 )
 
 // fix fits what a damaged or older file holds to the kind, and reports
@@ -123,17 +161,27 @@ func (ind *indicator) fix() bool {
 		}
 	}
 	ind.Params = ps
-	cs, ws := make([]hexColor, len(k.plots)), make([]float64, len(k.plots))
+	cs, ds, ws := make([]hexColor, len(k.plots)), make([]hexColor, len(k.plots)), make([]float64, len(k.plots))
 	for j := range k.plots {
 		if j < len(ind.Colors) {
 			cs[j] = ind.Colors[j]
+		}
+		if j < len(ind.Downs) {
+			ds[j] = ind.Downs[j]
 		}
 		ws[j] = 1
 		if j < len(ind.Widths) && ind.Widths[j] >= 1 && ind.Widths[j] <= maxLineWidth {
 			ws[j] = math.Round(ind.Widths[j])
 		}
 	}
-	ind.Colors, ind.Widths = cs, ws
+	ind.Colors, ind.Downs, ind.Widths = cs, ds, ws
+	if !k.source || !slices.ContainsFunc(sources, func(o option) bool { return o.key == ind.Source }) {
+		ind.Source = ""
+	}
+	if !k.offset || math.IsNaN(ind.Offset) {
+		ind.Offset = 0
+	}
+	ind.Offset = min(max(math.Round(ind.Offset), -maxOffset), maxOffset)
 	switch {
 	case !k.pane:
 		ind.Height = 0
@@ -166,18 +214,28 @@ func fixIndicators(list []indicator) []indicator {
 }
 
 func cloneIndicator(ind indicator) indicator {
-	ind.Params, ind.Colors, ind.Widths = slices.Clone(ind.Params), slices.Clone(ind.Colors), slices.Clone(ind.Widths)
+	ind.Params, ind.Colors, ind.Downs, ind.Widths = slices.Clone(ind.Params), slices.Clone(ind.Colors), slices.Clone(ind.Downs), slices.Clone(ind.Widths)
 	return ind
 }
 
-// paramText is the parameters as the legend lists them.
+// paramText is the parameters as the legend lists them, the source and the
+// offset when not the default.
 func (ind *indicator) paramText() string {
 	parts := make([]string, len(ind.Params))
 	for i, p := range ind.Params {
 		parts[i] = strconv.FormatFloat(p, 'f', -1, 64)
 	}
+	if ind.Source != "" {
+		parts = append(parts, labelOf(sources, ind.Source))
+	}
+	if ind.Offset != 0 {
+		parts = append(parts, "偏移 "+strconv.FormatFloat(ind.Offset, 'f', -1, 64))
+	}
 	return strings.Join(parts, " ")
 }
+
+// shift is how many bars to the right the plots are drawn.
+func (ind *indicator) shift() int { return int(ind.Offset) }
 
 // newIndicator is a kind with its defaults; MA and EMA take the first of
 // their presets the list does not have yet, and the next color.
@@ -209,7 +267,7 @@ func newIndicator(k *indKind, id int64, list []indicator) indicator {
 // bars before the newest one it had stay the same, only that one and the
 // ones after it are worked out again.
 type series struct {
-	kind       string
+	kind, src  string
 	params     []float64
 	gen, n     int
 	first      int64
@@ -218,10 +276,10 @@ type series struct {
 	from       int // where the last update began, for the tests
 }
 
-func (s *series) update(k *indKind, params []float64, bars []market.Bar, gen int) {
+func (s *series) update(k *indKind, params []float64, src string, bars []market.Bar, gen int) {
 	n := len(bars)
 	from := 0
-	if s.kind == k.key && slices.Equal(s.params, params) && s.gen == gen && s.n > 0 && n >= s.n &&
+	if s.kind == k.key && s.src == src && slices.Equal(s.params, params) && s.gen == gen && s.n > 0 && n >= s.n &&
 		bars[0].T == s.first && bars[s.n-1].T == s.last.T && (s.n < 2 || bars[s.n-2] == s.prev) {
 		if n == s.n && bars[n-1] == s.last {
 			return
@@ -240,13 +298,13 @@ func (s *series) update(k *indKind, params []float64, bars []market.Bar, gen int
 		s.out[j] = o[:n]
 	}
 	if n > 0 {
-		k.calc(bars, params, s.out, from)
+		k.calc(bars, source(bars, src), params, s.out, from)
 		s.first, s.last = bars[0].T, bars[n-1]
 	}
 	if n > 1 {
 		s.prev = bars[n-2]
 	}
-	s.kind, s.params, s.gen, s.n, s.from = k.key, slices.Clone(params), gen, n, from
+	s.kind, s.src, s.params, s.gen, s.n, s.from = k.key, src, slices.Clone(params), gen, n, from
 }
 
 // at is plot j's value at bar i, NaN for none.
@@ -262,8 +320,6 @@ func (s *series) at(j, i int) float64 {
 var nan = math.NaN()
 
 func iparam(p []float64, j int) int { return int(math.Round(p[j])) }
-
-func closes(b []market.Bar) func(int) float64 { return func(i int) float64 { return b[i].C } }
 
 // sma is the mean of src's n values up to i: NaN before there are n, or when
 // one of them is NaN.
@@ -298,30 +354,30 @@ func stdev(src func(int) float64, i, n int, mean float64) float64 {
 	return math.Sqrt(s / float64(n))
 }
 
-func calcMA(b []market.Bar, p []float64, out [][]float64, from int) {
-	n, c := iparam(p, 0), closes(b)
+func calcMA(b []market.Bar, src func(int) float64, p []float64, out [][]float64, from int) {
+	n := iparam(p, 0)
 	for i := from; i < len(b); i++ {
-		out[0][i] = sma(c, i, n)
+		out[0][i] = sma(src, i, n)
 	}
 }
 
-func calcEMA(b []market.Bar, p []float64, out [][]float64, from int) {
-	n, c := iparam(p, 0), closes(b)
+func calcEMA(b []market.Bar, src func(int) float64, p []float64, out [][]float64, from int) {
+	n := iparam(p, 0)
 	alpha := 2 / float64(n+1)
 	for i := from; i < len(b); i++ {
-		out[0][i] = smooth(out[0], c, i, n, alpha)
+		out[0][i] = smooth(out[0], src, i, n, alpha)
 	}
 }
 
 // calcBOLL: the middle band is the SMA, the others that and the standard
 // deviation times the multiplier above and below it.
-func calcBOLL(b []market.Bar, p []float64, out [][]float64, from int) {
-	n, mult, c := iparam(p, 0), p[1], closes(b)
+func calcBOLL(b []market.Bar, src func(int) float64, p []float64, out [][]float64, from int) {
+	n, mult := iparam(p, 0), p[1]
 	for i := from; i < len(b); i++ {
-		mid := sma(c, i, n)
+		mid := sma(src, i, n)
 		dev := nan
 		if !math.IsNaN(mid) {
-			dev = mult * stdev(c, i, n, mid)
+			dev = mult * stdev(src, i, n, mid)
 		}
 		out[0][i], out[1][i], out[2][i] = mid, mid+dev, mid-dev
 	}
@@ -329,8 +385,8 @@ func calcBOLL(b []market.Bar, p []float64, out [][]float64, from int) {
 
 // calcMACD: DIF is the fast EMA less the slow one, DEA the EMA of DIF, and
 // the histogram DIF less DEA. It keeps the two EMAs after its plots.
-func calcMACD(b []market.Bar, p []float64, out [][]float64, from int) {
-	fast, slow, signal, c := iparam(p, 0), iparam(p, 1), iparam(p, 2), closes(b)
+func calcMACD(b []market.Bar, c func(int) float64, p []float64, out [][]float64, from int) {
+	fast, slow, signal := iparam(p, 0), iparam(p, 1), iparam(p, 2)
 	dif, dea, hist, ef, es := out[0], out[1], out[2], out[3], out[4]
 	difAt := func(i int) float64 { return dif[i] }
 	for i := from; i < len(b); i++ {
@@ -343,15 +399,15 @@ func calcMACD(b []market.Bar, p []float64, out [][]float64, from int) {
 }
 
 // calcRSI is Wilder's: the RMAs of the rises and of the falls from one close
-// to the next, which it keeps after its plot.
-func calcRSI(b []market.Bar, p []float64, out [][]float64, from int) {
+// (or other source) to the next, which it keeps after its plot.
+func calcRSI(b []market.Bar, src func(int) float64, p []float64, out [][]float64, from int) {
 	n := iparam(p, 0)
 	rsi, up, down := out[0], out[1], out[2]
 	change := func(i int) float64 {
 		if i == 0 {
 			return nan
 		}
-		return b[i].C - b[i-1].C
+		return src(i) - src(i-1)
 	}
 	rise := func(i int) float64 { return math.Max(change(i), 0) }
 	fall := func(i int) float64 { return -math.Min(change(i), 0) }
@@ -375,7 +431,7 @@ func calcRSI(b []market.Bar, p []float64, out [][]float64, from int) {
 // the lowest low and the highest high of the period, K its moving average
 // (1/m1 of the new value, the rest the last K, starting from 0), D that of K,
 // and J 3K - 2D. A period without any range counts as halfway.
-func calcKDJ(b []market.Bar, p []float64, out [][]float64, from int) {
+func calcKDJ(b []market.Bar, _ func(int) float64, p []float64, out [][]float64, from int) {
 	n, m1, m2 := iparam(p, 0), float64(iparam(p, 1)), float64(iparam(p, 2))
 	kk, dd, jj := out[0], out[1], out[2]
 	nz := func(v float64) float64 {
@@ -408,7 +464,7 @@ func calcKDJ(b []market.Bar, p []float64, out [][]float64, from int) {
 }
 
 // calcVOL is the volume and its SMA, none for a period of 0.
-func calcVOL(b []market.Bar, p []float64, out [][]float64, from int) {
+func calcVOL(b []market.Bar, _ func(int) float64, p []float64, out [][]float64, from int) {
 	n := iparam(p, 0)
 	v := func(i int) float64 { return b[i].V }
 	for i := from; i < len(b); i++ {

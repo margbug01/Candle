@@ -292,6 +292,8 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 			}
 		}
 	}
+	tags := a.overlayTags(func(v float64) float32 { return mid(y(v)) }, priceText, plot.Y, plot.Y+plot.H)
+	taken = append(taken, tagSpans(tags)...)
 
 	type mark struct {
 		y    float32
@@ -360,11 +362,19 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 		bw -= px // odd, so the wick runs down its middle
 	}
 	xAt := func(i int) float32 { return plot.X + v.x(i, plot.W, n) }
+	// The volume takes the candles' colors, but one lost on the background
+	// (white rising candles on white) gives way to the bars' own.
+	bg := st.Background.or(k.bg)
+	volUp, volDown := readable(k.up, ui.Hex(barUp), bg, ui.Hex(barUp)), readable(k.down, ui.Hex(barDown), bg, ui.Hex(barDown))
 	p.Clip(plot, 0, func() {
 		for i := from; i <= to && st.Volume && maxVol > 0; i++ {
 			h := float32(a.bars[i].V/maxVol) * plot.H * 0.18
 			xc := mid(plot.X + v.x(i, plot.W, n))
-			p.Fill(ui.Rect{X: xc - bw/2, Y: plot.Y + plot.H - h, W: bw, H: h}, a.barColor(i, k).Alpha(0.3), 0)
+			c := volDown
+			if a.rising(i) {
+				c = volUp
+			}
+			p.Fill(ui.Rect{X: xc - bw/2, Y: plot.Y + plot.H - h, W: bw, H: h}, c.Alpha(0.3), 0)
 		}
 		a.drawBars(p, plot, k, v, from, to, y, bw, px, mid, snap)
 		a.drawOverlays(p, xAt, y, from, to)
@@ -377,6 +387,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 		a.drawDrawings(p, plot, dm, k)
 	})
 
+	drawTags(p, plot.X+plot.W, tags, size+0.5) // under the last price's label
 	for _, e := range extremes {
 		yy := mid(y(e))
 		p.Fill(ui.Rect{X: plot.X + plot.W, Y: yy - 10, W: axisW, H: 20}, k.label, 2)

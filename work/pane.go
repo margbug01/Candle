@@ -8,7 +8,8 @@ import (
 
 // The panes: the candles' on top, below it one for each indicator drawn in
 // a pane of its own, and the time axis under them all. Every pane has its
-// price axis on the right; the lines between panes move.
+// price axis on the right, which scales its prices as the candles' does
+// theirs; the lines between panes move.
 
 const (
 	minMainH = 120 // what the candles' pane keeps at least
@@ -21,6 +22,13 @@ const (
 type paneBox struct {
 	idx  int
 	y, h float32
+}
+
+// paneView is an indicator's pane's prices: as set, automatic unless scaled
+// by hand, and as the last frame showed and laid them out.
+type paneView struct {
+	scale, shown prices
+	ax           axis
 }
 
 // layout splits h, the chart's height above the time axis, into the
@@ -49,6 +57,26 @@ func (a *application) layout(h float32) (mainH float32, panes []paneBox) {
 		panes[i].y, panes[i].h = y, ph
 	}
 	return y, panes
+}
+
+// paneAt is the indicator's pane at y in the chart.
+func (a *application) paneAt(y float32) (paneBox, bool) {
+	_, panes := a.layout(a.boxH - timeH)
+	for _, pn := range panes {
+		if y >= pn.y && y < pn.y+pn.h {
+			return pn, true
+		}
+	}
+	return paneBox{}, false
+}
+
+func (a *application) paneView(id int64) *paneView {
+	pv := a.paneViews[id]
+	if pv == nil {
+		pv = &paneView{}
+		a.paneViews[id] = pv
+	}
+	return pv
 }
 
 // sepAt is which line between panes is at y in the chart, by the pane under
@@ -86,20 +114,39 @@ func (a *application) moveSep(i int, y float32) {
 	a.set.Indicators[panes[i].idx].Height = float64((bottom - y) / h)
 }
 
-// paneInput drags the lines between panes. It reports whether it took the event.
+// paneInput drags the lines between panes, and scales a pane's prices on
+// its price axis as the candles' axis does theirs: the wheel, and a drag up
+// or down, until a double click there. It reports whether it took the event.
 func (a *application) paneInput(ev ui.InputEvent) bool {
 	switch ev.Kind {
-	case ui.InputPointerDown:
-		if ev.Button != 0 {
+	case ui.InputPointerDown, ui.InputScroll:
+		if ev.Kind == ui.InputPointerDown && ev.Button != 0 {
 			return false
 		}
-		if i := a.sepAt(ev.Y); i >= 0 {
+		if i := a.sepAt(ev.Y); i >= 0 && ev.Kind == ui.InputPointerDown {
 			_, panes := a.layout(a.boxH - timeH)
 			a.drag, a.sep, a.dragY = dragSep, i, ev.Y-panes[i].y // the line follows the pointer from where it took it
 			return true
 		}
+		pn, ok := a.paneAt(ev.Y)
+		if !ok || ev.X <= a.plotW {
+			return false
+		}
+		id := a.set.Indicators[pn.idx].ID
+		pv := a.paneView(id)
+		switch {
+		case ev.Kind == ui.InputScroll:
+			if holdPrices(&pv.scale, pv.shown) {
+				pv.scale.zoom(math.Pow(zoomPerNotch, float64(ev.DY/notch)), pv.scale.at(ev.Y-pn.y, pv.ax), pv.ax)
+			}
+		case ev.Clicks >= 2:
+			pv.scale = prices{}
+		case holdPrices(&pv.scale, pv.shown):
+			a.drag, a.dragY, a.dragPane = dragPaneAxis, ev.Y, id
+		}
+		return true
 	case ui.InputPointerMove:
-		if a.drag != dragSep {
+		if a.drag != dragSep && a.drag != dragPaneAxis {
 			return false
 		}
 		if ev.Button != 0 { // let go somewhere we did not hear of
@@ -107,14 +154,24 @@ func (a *application) paneInput(ev ui.InputEvent) bool {
 			a.save()
 			return true
 		}
-		a.moveSep(a.sep, ev.Y-a.dragY)
+		if a.drag == dragSep {
+			a.moveSep(a.sep, ev.Y-a.dragY)
+			return true
+		}
+		pv := a.paneView(a.dragPane)
+		dy := ev.Y - a.dragY
+		a.dragY = ev.Y
+		m := pv.ax
+		pv.scale.zoom(math.Exp(float64(dy)/axisDrag), pv.scale.at(m.h*(m.top+m.bottom)/2, m), m)
 		return true
 	case ui.InputPointerUp:
-		if a.drag != dragSep {
+		if a.drag != dragSep && a.drag != dragPaneAxis {
 			return false
 		}
+		if a.drag == dragSep {
+			a.save()
+		}
 		a.drag = dragNone
-		a.save()
 		return true
 	}
 	return false
@@ -128,20 +185,30 @@ func (a *application) seriesFor(ind *indicator) *series {
 		s = &series{}
 		a.series[ind.ID] = s
 	}
-	s.update(k, ind.Params, a.bars, a.gen)
+	s.update(k, ind.Params, ind.Source, a.bars, a.gen)
 	return s
 }
 
-// color is plot j's; bars, which take the candles' colors, have none.
+// color is plot j's; a bar plot's above zero, or rising.
 func (ind *indicator) color(k *indKind, j int) ui.Color {
-	var def ui.Color
-	if c := k.plots[j].color; c != "" {
-		def = ui.Hex(c)
+	return pick(ind.Colors, j, k.plots[j].color)
+}
+
+// downColor is a bar plot's second color: below zero, or falling.
+func (ind *indicator) downColor(k *indKind, j int) ui.Color {
+	return pick(ind.Downs, j, k.plots[j].down)
+}
+
+// pick is cs[j], or def while unset.
+func pick(cs []hexColor, j int, def string) ui.Color {
+	var d ui.Color
+	if def != "" {
+		d = ui.Hex(def)
 	}
-	if j < len(ind.Colors) {
-		return ind.Colors[j].or(def)
+	if j < len(cs) {
+		return cs[j].or(d)
 	}
-	return def
+	return d
 }
 
 func (ind *indicator) width(j int) float32 {
@@ -149,6 +216,27 @@ func (ind *indicator) width(j int) float32 {
 		return float32(ind.Widths[j])
 	}
 	return 1
+}
+
+// plotBarColor is the color of plot j's bar i: a histogram's by its side of
+// zero, paler while it shrinks, as TradingView's MACD has it; volume's by
+// whether the candle rose.
+func (a *application) plotBarColor(ind *indicator, k *indKind, j int, vals []float64, i int) ui.Color {
+	if k.plots[j].style == plotVolume {
+		if a.rising(i) {
+			return ind.color(k, j)
+		}
+		return ind.downColor(k, j)
+	}
+	v := vals[i]
+	c := ind.color(k, j)
+	if v < 0 {
+		c = ind.downColor(k, j)
+	}
+	if i > 0 && !math.IsNaN(vals[i-1]) && math.Abs(v) < math.Abs(vals[i-1]) {
+		return c.Alpha(0.45)
+	}
+	return c
 }
 
 // valueText is an indicator's value as the legend and the axis read it.
@@ -174,13 +262,15 @@ func (a *application) overlays(fn func(ind *indicator, k *indKind, s *series)) {
 	}
 }
 
-// overlayRange widens lo and hi to the values of the overlays from bar
+// overlayRange widens lo and hi to the values of the overlays drawn on bar
 // from to bar to, but those a log scale cannot show.
 func (a *application) overlayRange(from, to int, lo, hi float64, log bool) (float64, float64) {
 	a.overlays(func(ind *indicator, k *indKind, s *series) {
+		off := ind.shift()
 		for j := range k.plots {
-			for _, v := range s.out[j][from : to+1] {
-				if !math.IsNaN(v) && (!log || v > 0) {
+			vals := s.out[j]
+			for i := max(from-off, 0); i <= min(to-off, len(vals)-1); i++ {
+				if v := vals[i]; !math.IsNaN(v) && (!log || v > 0) {
 					lo, hi = min(lo, v), max(hi, v)
 				}
 			}
@@ -189,21 +279,22 @@ func (a *application) overlayRange(from, to int, lo, hi float64, log bool) (floa
 	return lo, hi
 }
 
-// strokeSeries draws vals from bar from to bar to as a line, one bar past
-// each end so that it runs off the plot; a NaN breaks it.
-func strokeSeries(p *ui.Painter, x func(int) float32, y func(float64) float32, vals []float64, from, to int, w float32, c ui.Color) {
+// strokeSeries draws vals as a line where they land on bars from to to, each
+// off bars to the right of its own, one bar past each end so that it runs
+// off the plot; a NaN breaks it.
+func strokeSeries(p *ui.Painter, x func(int) float32, y func(float64) float32, vals []float64, from, to, off int, w float32, c ui.Color) {
 	var path ui.Path
 	drawn, open := false, false
-	for i := max(from-1, 0); i <= min(to+1, len(vals)-1); i++ {
+	for i := max(from-1-off, 0); i <= min(to+1-off, len(vals)-1); i++ {
 		v := vals[i]
 		switch {
 		case math.IsNaN(v):
 			open = false
 		case open:
-			path.LineTo(x(i), y(v))
+			path.LineTo(x(i+off), y(v))
 			drawn = true
 		default:
-			path.MoveTo(x(i), y(v))
+			path.MoveTo(x(i+off), y(v))
 			open = true
 		}
 	}
@@ -212,10 +303,10 @@ func strokeSeries(p *ui.Painter, x func(int) float32, y func(float64) float32, v
 	}
 }
 
-// fillBetween shades the space between two series from bar from to bar to
-// where both have values.
-func fillBetween(p *ui.Painter, x func(int) float32, y func(float64) float32, top, bottom []float64, from, to int, c ui.Color) {
-	i0, i1 := max(from-1, 0), min(to+1, len(top)-1)
+// fillBetween shades the space between two series where they land on bars
+// from to to, off bars to the right, and both have values.
+func fillBetween(p *ui.Painter, x func(int) float32, y func(float64) float32, top, bottom []float64, from, to, off int, c ui.Color) {
+	i0, i1 := max(from-1-off, 0), min(to+1-off, len(top)-1)
 	for i0 <= i1 && (math.IsNaN(top[i0]) || math.IsNaN(bottom[i0])) {
 		i0++
 	}
@@ -223,12 +314,12 @@ func fillBetween(p *ui.Painter, x func(int) float32, y func(float64) float32, to
 		return
 	}
 	var path ui.Path
-	path.MoveTo(x(i0), y(top[i0]))
+	path.MoveTo(x(i0+off), y(top[i0]))
 	for i := i0 + 1; i <= i1; i++ {
-		path.LineTo(x(i), y(top[i]))
+		path.LineTo(x(i+off), y(top[i]))
 	}
 	for i := i1; i >= i0; i-- {
-		path.LineTo(x(i), y(bottom[i]))
+		path.LineTo(x(i+off), y(bottom[i]))
 	}
 	p.FillPath(path.Close(), c)
 }
@@ -236,13 +327,53 @@ func fillBetween(p *ui.Painter, x func(int) float32, y func(float64) float32, to
 // drawOverlays draws the indicators over the candles.
 func (a *application) drawOverlays(p *ui.Painter, x func(int) float32, y func(float64) float32, from, to int) {
 	a.overlays(func(ind *indicator, k *indKind, s *series) {
+		off := ind.shift()
 		if len(k.fill) == 2 {
-			fillBetween(p, x, y, s.out[k.fill[0]], s.out[k.fill[1]], from, to, ind.color(k, k.fill[0]).Alpha(0.07))
+			fillBetween(p, x, y, s.out[k.fill[0]], s.out[k.fill[1]], from, to, off, ind.color(k, k.fill[0]).Alpha(0.07))
 		}
 		for j := range k.plots {
-			strokeSeries(p, x, y, s.out[j], from, to, ind.width(j), ind.color(k, j))
+			strokeSeries(p, x, y, s.out[j], from, to, off, ind.width(j), ind.color(k, j))
 		}
 	})
+}
+
+// axisTag is a value's label on a price axis, in its line's color.
+type axisTag struct {
+	y    float32
+	text string
+	c    ui.Color
+}
+
+// overlayTags are the newest values of the overlays, for the candles' axis.
+func (a *application) overlayTags(y func(float64) float32, text func(float64) string, top, bottom float32) []axisTag {
+	var tags []axisTag
+	if !a.set.Chart.IndValues {
+		return nil
+	}
+	a.overlays(func(ind *indicator, k *indKind, s *series) {
+		for j := range k.plots {
+			if v := s.at(j, len(a.bars)-1); !math.IsNaN(v) {
+				if yy := y(v); yy >= top && yy <= bottom {
+					tags = append(tags, axisTag{yy, text(v), ind.color(k, j)})
+				}
+			}
+		}
+	})
+	return tags
+}
+
+func drawTags(p *ui.Painter, x float32, tags []axisTag, size float32) {
+	for _, t := range tags {
+		p.Fill(ui.Rect{X: x, Y: t.y - 10, W: axisW, H: 20}, t.c, 2)
+		label(p, x+8, t.y, span(t.text, size, onColor(t.c), 0), alignStart)
+	}
+}
+
+func tagSpans(tags []axisTag) (out [][2]float32) {
+	for _, t := range tags {
+		out = append(out, [2]float32{t.y - 10, t.y + 10})
+	}
+	return out
 }
 
 // paneScale is how a pane laid its values out, for the crosshair's label.
@@ -252,8 +383,9 @@ type paneScale struct {
 	ax axis
 }
 
-// drawPane draws ind in pane r: its plots and levels, and on the price axis
-// beside it a scale fitted to the values in sight and the levels.
+// drawPane draws ind in pane r: its bars, levels and lines, and on the price
+// axis beside it a scale fitted to the values in sight and the levels, or
+// as scaled by hand, and the newest values.
 func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(int) float32, from, to int, k palette, bw, px float32, mid func(float32) float32) paneScale {
 	st := &a.set.Chart
 	kind, _ := kindOf(ind.Kind)
@@ -286,13 +418,36 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 		d := max(math.Abs(hi)*0.01, 1e-8)
 		lo, hi = lo-d, hi+d
 	}
+	pv := a.paneView(ind.ID)
 	sc := prices{lo: lo, hi: hi}
+	if pv.scale.manual {
+		sc = pv.scale
+	}
+	pv.shown, pv.ax = sc, ax
 	y := func(v float64) float32 { return r.Y + sc.y(v, ax) }
 
+	var tags []axisTag
+	if s != nil && st.IndValues {
+		n := len(a.bars)
+		for j, pl := range kind.plots {
+			v := s.at(j, n-1)
+			if math.IsNaN(v) {
+				continue
+			}
+			c := ind.color(kind, j)
+			if pl.style != plotLine {
+				c = a.plotBarColor(ind, kind, j, s.out[j], n-1).Alpha(1)
+			}
+			if yy := mid(y(v)); yy >= r.Y && yy <= r.Y+r.H {
+				tags = append(tags, axisTag{min(max(yy, r.Y+10), r.Y+r.H-10), a.valueText(kind, v), c})
+			}
+		}
+	}
 	size, textCol := float32(st.TextSize), st.TextColor.or(k.muted)
 	count := max(int(r.H/36), 2)
 	vTop, vBottom := sc.at(0, ax), sc.at(r.H, ax)
 	step := niceStep(vTop-vBottom, count)
+	taken := tagSpans(tags)
 	for _, v := range priceTicks(vBottom, vTop, count, false) {
 		yy := mid(y(v))
 		if yy < r.Y+8 || yy > r.Y+r.H-8 {
@@ -300,6 +455,9 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 		}
 		if st.HorzGrid {
 			p.Line(r.X, yy, r.X+r.W, yy, px, st.HorzColor.or(k.grid))
+		}
+		if st.NoOverlap && covered(yy, taken) {
+			continue
 		}
 		text := formatPrice(v, min(stepDecimals(step), 10))
 		if kind.decimals == -2 {
@@ -318,16 +476,15 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 		for _, l := range kind.levels {
 			dash(p, r.X, mid(y(l)), r.X+r.W, mid(y(l)), px, k.muted.Alpha(0.6), "")
 		}
+		// The bars first, behind the lines, which they would cut.
 		for j, pl := range kind.plots {
 			vals := s.out[j]
 			switch pl.style {
-			case plotLine:
-				strokeSeries(p, x, y, vals, from, to, ind.width(j), ind.color(kind, j))
 			case plotVolume:
 				for i := from; i <= to; i++ {
 					top := y(vals[i])
 					xc := mid(x(i))
-					p.Fill(ui.Rect{X: xc - bw/2, Y: top, W: bw, H: max(r.Y+r.H-top, px)}, a.barColor(i, k).Alpha(0.5), 0)
+					p.Fill(ui.Rect{X: xc - bw/2, Y: top, W: bw, H: max(r.Y+r.H-top, px)}, a.plotBarColor(ind, kind, j, vals, i).Alpha(0.5), 0)
 				}
 			case plotHist:
 				zero := y(0)
@@ -336,28 +493,20 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 					if math.IsNaN(v) {
 						continue
 					}
-					c := histColor(v, vals, i, k)
 					top, h := min(zero, y(v)), max(float32(math.Abs(float64(y(v)-zero))), px)
 					xc := mid(x(i))
-					p.Fill(ui.Rect{X: xc - bw/2, Y: top, W: bw, H: h}, c, 0)
+					p.Fill(ui.Rect{X: xc - bw/2, Y: top, W: bw, H: h}, a.plotBarColor(ind, kind, j, vals, i), 0)
 				}
 			}
 		}
+		for j, pl := range kind.plots {
+			if pl.style == plotLine {
+				strokeSeries(p, x, y, s.out[j], from, to, 0, ind.width(j), ind.color(kind, j))
+			}
+		}
 	})
+	drawTags(p, r.X+r.W, tags, size+0.5)
 	return paneScale{kind, sc, ax}
-}
-
-// histColor is a histogram bar's: the up color above zero and the down
-// color below it, paler while it shrinks, as TradingView's MACD has it.
-func histColor(v float64, vals []float64, i int, k palette) ui.Color {
-	c := k.up
-	if v < 0 {
-		c = k.down
-	}
-	if i > 0 && !math.IsNaN(vals[i-1]) && math.Abs(v) < math.Abs(vals[i-1]) {
-		return c.Alpha(0.45)
-	}
-	return c
 }
 
 // hoverBar is the bar under the pointer at x, y in the chart, in any pane;

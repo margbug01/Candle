@@ -27,6 +27,11 @@ type drawing struct {
 	Text   string  // a text's
 	Size   float64 // a text's, 0 for 14
 	Locked bool    // kept from being moved
+
+	// A position's account and the part of it, in percent, the stop-loss
+	// loses; 0 for the defaults.
+	Account float64 `json:",omitempty"`
+	Risk    float64 `json:",omitempty"`
 }
 
 func textSize(d *drawing) float64 {

@@ -34,6 +34,7 @@ type style struct {
 	Buttons    string // the 自动 and 对数 switches: "" while the pointer is on the axis, "always", "never"
 	NoOverlap  bool
 	LastPrice  string // "" label and line, "value", "line", "none"
+	IndValues  bool   // the indicators' newest values on the axes
 	Countdown  bool
 	HighLow    bool
 	Weekday    bool
@@ -58,7 +59,7 @@ func defaultStyle() style {
 	return style{
 		Body: true, Borders: true, Wick: true, Volume: true, Precision: -1,
 		Title: true, Values: true, Change: true, VolumeValue: true,
-		NoOverlap: true, Countdown: true, Weekday: true, DateFormat: "2006-01-02",
+		NoOverlap: true, IndValues: true, Countdown: true, Weekday: true, DateFormat: "2006-01-02",
 		VertGrid: true, HorzGrid: true, TextSize: 11, TopMargin: 8, BottomMargin: 22, RightBars: 6,
 	}
 }

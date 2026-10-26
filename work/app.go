@@ -24,10 +24,11 @@ const (
 const (
 	dragNone = iota
 	dragChart
-	dragAxis    // the price axis
-	dragCreate  // a drawing being drawn
-	dragDrawing // a drawing, or one of its points
-	dragSep     // the line above an indicator's pane
+	dragAxis     // the price axis
+	dragCreate   // a drawing being drawn
+	dragDrawing  // a drawing, or one of its points
+	dragSep      // the line above an indicator's pane
+	dragPaneAxis // an indicator's pane's price axis
 )
 
 // application is the window's state. Everything here belongs to the main
@@ -57,7 +58,7 @@ type application struct {
 	stream           int
 	drag             int // dragNone, dragChart…
 	dragX, dragY     float32
-	dragPane         bool   // the chart dragged from an indicator's pane
+	dragPane         int64  // the indicator whose pane, or its price axis, is dragged
 	sep              int    // the pane whose top line is dragged
 	scale            prices // the price axis as set: automatic unless scaled by hand
 	shown            prices // the prices the last frame showed
@@ -92,6 +93,8 @@ type application struct {
 	nextID         int64
 	barFor         int64 // the drawing the bar showed last frame
 	pricePick      choice[float64]
+	accountPick    choice[float64]
+	riskPick       choice[float64]
 	undo, redo     [][]drawing // the market's drawings before each change, and after each undo
 	lastEdit       string      // the key of the last remembered change
 	dragBefore     []drawing   // the drawings as a drag of one began
@@ -102,6 +105,7 @@ type application struct {
 	// dialog setting one, with it as it was, for 取消. later is what the
 	// frame being built changes once it is built.
 	series     map[int64]*series
+	paneViews  map[int64]*paneView // the indicators' panes' prices
 	indList    bool
 	indQuery   string
 	indFocus   bool
@@ -129,6 +133,7 @@ func newApplication(set settings, file string, bin market.Binance, post func(fun
 		picks:     map[string]*choice[string]{},
 		colors:    map[string]*choice[ui.Color]{},
 		series:    map[int64]*series{},
+		paneViews: map[int64]*paneView{},
 		scaleMode: set.Chart.Scale, homeShown: float32(set.Chart.RightBars),
 		textBox: map[int64]ui.Rect{},
 		nextID:  maxDrawingID(set.Drawings),
@@ -166,6 +171,7 @@ func (a *application) open(sym, iv string) {
 	a.symbol, a.interval = sym, iv
 	a.bars, a.loading, a.older, a.atStart, a.err, a.stream, a.drag = nil, true, false, false, "", connecting, dragNone
 	a.scale = prices{}
+	clear(a.paneViews)
 	a.sel, a.creating = 0, nil
 	a.olderFailed = time.Time{}
 	a.view.offset = a.home()
@@ -257,12 +263,16 @@ func (a *application) addBars(got []market.Bar) {
 
 // manualScale fixes the price axis at the prices on screen, for scaling or
 // moving them by hand; false before a frame has shown any.
-func (a *application) manualScale() bool {
-	if !a.scale.manual {
-		if a.shown.hi <= a.shown.lo {
+func (a *application) manualScale() bool { return holdPrices(&a.scale, a.shown) }
+
+// holdPrices fixes sc, unless set by hand already, at shown, the prices on
+// screen; false before a frame has shown any.
+func holdPrices(sc *prices, shown prices) bool {
+	if !sc.manual {
+		if shown.hi <= shown.lo {
 			return false
 		}
-		a.scale = prices{manual: true, lo: a.shown.lo, hi: a.shown.hi}
+		*sc = prices{manual: true, lo: shown.lo, hi: shown.hi}
 	}
 	return true
 }

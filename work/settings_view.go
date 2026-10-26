@@ -256,6 +256,7 @@ func (a *application) scalesPage(c *ui.Context, t *ui.Theme, k palette) {
 	section(c, t, "价格标签和价格线")
 	row(c, "最新价", func() { a.dropdown(c, "最新价", lastPrices, st.LastPrice, func(v string) { st.LastPrice = v }) })
 	checkRow(c, &st.Countdown, "当前K线结束倒计时", nil)
+	checkRow(c, &st.IndValues, "指标最新值", nil)
 	checkRow(c, &st.HighLow, "可见范围的高低点", nil)
 	section(c, t, "时间坐标")
 	checkRow(c, &st.Weekday, "标签上的星期几", nil)

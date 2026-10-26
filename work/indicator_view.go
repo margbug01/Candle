@@ -48,6 +48,7 @@ func (a *application) addIndicator(k *indKind) {
 func (a *application) deleteIndicator(id int64) {
 	a.set.Indicators = slices.DeleteFunc(slices.Clone(a.set.Indicators), func(ind indicator) bool { return ind.ID == id })
 	delete(a.series, id)
+	delete(a.paneViews, id)
 	if a.indEdit == id {
 		a.indDialog, a.indEditing, a.indEdit = false, false, 0
 	}
@@ -144,13 +145,10 @@ func (a *application) legendRow(c *ui.Context, t *ui.Theme, k palette, ind *indi
 		var spans []ui.Span
 		s := a.seriesFor(ind)
 		for j, pl := range kind.plots {
-			v := s.at(j, i)
+			v := s.at(j, i-ind.shift())
 			text, col := a.valueText(kind, v), ind.color(kind, j)
-			switch pl.style {
-			case plotHist:
-				col = histColor(v, s.out[j], i, k)
-			case plotVolume:
-				col = a.inkColor(i, k)
+			if pl.style != plotLine && !math.IsNaN(v) {
+				col = a.plotBarColor(ind, kind, j, s.out[j], i).Alpha(1)
 			}
 			if len(kind.plots) > 1 {
 				text = pl.name + " " + text
@@ -324,12 +322,31 @@ func (a *application) indicatorDialog(c *ui.Context, t *ui.Theme, k palette) {
 							Width(170).Shrink(0).Label(kind.short + " " + pd.name)
 					})
 				}
+				if kind.source {
+					row(c, "源", func() {
+						a.dropdown(c, kind.short+" 源", sources, ind.Source, func(v string) { ind.Source = v }).Width(170).MinWidth(170)
+					})
+				}
+				if kind.offset {
+					row(c, "偏移", func() {
+						ui.NumberInput(c.Key("ind-offset-"+id), &ind.Offset, -maxOffset, maxOffset, 1).Width(170).Shrink(0).Label(kind.short + " 偏移")
+						ui.Text(c, "根K线").FontSize(13).TextColor(t.TextMuted)
+					})
+				}
 				section(c, t, "样式")
 				for j, pl := range kind.plots {
+					key := "ind-" + id + "-" + strconv.Itoa(j)
 					if pl.style != plotLine {
+						up, down := "上涨", "下跌"
+						if pl.style == plotHist {
+							up, down = "零轴上方", "零轴下方"
+						}
+						row(c, pl.name, func() {
+							a.well(c, key+"-up", ind.color(kind, j), func(h hexColor) { ind.Colors[j] = h }).Label(pl.name + up + "颜色").Tooltip(up)
+							a.well(c, key+"-down", ind.downColor(kind, j), func(h hexColor) { ind.Downs[j] = h }).Label(pl.name + down + "颜色").Tooltip(down)
+						})
 						continue
 					}
-					key := "ind-" + id + "-" + strconv.Itoa(j)
 					row(c, pl.name, func() {
 						a.well(c, key+"-color", ind.color(kind, j), func(h hexColor) { ind.Colors[j] = h }).Label(pl.name + "线色").Tooltip("线色")
 						widthButtons(c, t, k, key+"-width", ind.Widths[j], func(w float64) { ind.Widths[j] = w })

@@ -474,6 +474,25 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 		case "range":
 		case "long", "short":
 			fixedText(c, span(ratioText(d), 12, t.Text, 600)).Margin(0, 6)
+			// The account and the risk size the position the box reads out.
+			for _, f := range []struct {
+				key, name, tip, unit string
+				pick                 *choice[float64]
+				cur, lo, hi, step    float64
+				set                  func(float64)
+			}{
+				{"account", "账户金额", "账户里有多少钱（按报价币计）", "账户", &a.accountPick, account(d), 1, 1e12, 100, func(v float64) { d.Account = v }},
+				{"risk", "风险比例", "打到止损时亏掉账户的百分之几", "风险 %", &a.riskPick, riskPct(d), 0.01, 100, 0.5, func(v float64) { d.Risk = v }},
+			} {
+				p, picked, changed := f.pick.bind(f.cur)
+				if changed && !d.Locked {
+					a.remember(f.key + ":" + id)
+					f.set(picked)
+					a.save()
+				}
+				ui.Text(c, f.unit).FontSize(12).TextColor(t.TextMuted).Margin(0, 0, 0, 6).SingleLine()
+				ui.NumberInput(c.Key("position-"+f.key), p, f.lo, f.hi, f.step).Width(130).ReadOnly(d.Locked).Label(f.name).Tooltip(f.tip)
+			}
 		default:
 			widthButtons(c, t, k, "width", d.Width, func(w float64) {
 				a.remember("")

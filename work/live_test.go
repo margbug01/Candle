@@ -47,7 +47,7 @@ func TestLive(t *testing.T) {
 			s := a.seriesFor(ind)
 			k, _ := kindOf(ind.Kind)
 			var fresh series
-			fresh.update(k, ind.Params, a.bars, a.gen)
+			fresh.update(k, ind.Params, ind.Source, a.bars, a.gen)
 			for j := range k.plots {
 				same(t, what+" "+ind.Kind, s.out[j], fresh.out[j], 0)
 			}

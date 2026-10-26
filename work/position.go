@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -13,7 +14,45 @@ import (
 // take-profit and the stop-loss, all three at the box's left edge, and its
 // right edge at the entry's price. One click places it.
 
-const positionBars = 20 // how wide a new box is
+const (
+	positionBars   = 20   // how wide a new box is
+	defaultAccount = 1000 // in what the market is priced in
+	defaultRisk    = 1    // percent of the account
+)
+
+func account(d *drawing) float64 {
+	if d.Account > 0 {
+		return d.Account
+	}
+	return defaultAccount
+}
+
+func riskPct(d *drawing) float64 {
+	if d.Risk > 0 {
+		return d.Risk
+	}
+	return defaultRisk
+}
+
+// positionSize is how much to buy or sell for the stop-loss to lose the
+// risk, that part of the account; false without a stop-loss away from the
+// entry.
+func positionSize(d *drawing) (float64, bool) {
+	per := math.Abs(d.Pts[0].P - d.Pts[2].P)
+	if per == 0 {
+		return 0, false
+	}
+	return account(d) * riskPct(d) / 100 / per, true
+}
+
+// qtyText is a quantity to about four digits.
+func qtyText(q float64) string {
+	d := 2
+	if q > 0 {
+		d = min(max(3-int(math.Floor(math.Log10(q))), 0), 8)
+	}
+	return strconv.FormatFloat(q, 'f', d, 64)
+}
 
 func isPosition(kind string) bool { return kind == "long" || kind == "short" }
 
@@ -78,11 +117,22 @@ func (a *application) drawPosition(p *ui.Painter, plot ui.Rect, m mapper, k pale
 
 	entry := d.Pts[0].P
 	dec := a.chartDecimals(entry)
+	qty, sized := positionSize(d)
+	// move is a price, how far it is from the entry, and what the position
+	// makes or loses there.
 	move := func(v float64) string {
-		if entry == 0 {
-			return formatPrice(v, dec)
+		s := formatPrice(v, dec)
+		if entry != 0 {
+			s += fmt.Sprintf(" (%+.2f%%)", (v/entry-1)*100)
 		}
-		return fmt.Sprintf("%s (%+.2f%%)", formatPrice(v, dec), (v/entry-1)*100)
+		if sized {
+			gain := (v - entry) * qty
+			if d.Kind == "short" {
+				gain = -gain
+			}
+			s += fmt.Sprintf("  %+.2f", gain)
+		}
+		return s
 	}
 	// tag puts text in a label of color c, centered at cx, its near edge at y
 	// and going up (above) or down.
@@ -100,7 +150,11 @@ func (a *application) drawPosition(p *ui.Painter, plot ui.Rect, m mapper, k pale
 	}
 	tag("止盈 "+move(d.Pts[1].P), k.up, yt, yt < ye)
 	tag("止损 "+move(d.Pts[2].P), k.down, ys, ys < ye)
-	sp := span(ratioText(d), 11.5, k.onLabel, 600)
+	text := ratioText(d)
+	if sized {
+		text += "  数量 " + qtyText(qty)
+	}
+	sp := span(text, 11.5, k.onLabel, 600)
 	w, h := p.MeasureText(0, sp)
 	p.Fill(ui.Rect{X: cx - w/2 - 6, Y: ye - h/2 - 3, W: w + 12, H: h + 6}, k.label, 3)
 	p.RichText(cx-w/2, ye-h/2, 0, sp)

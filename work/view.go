@@ -185,7 +185,7 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 		cursor = ui.CursorGrabbing
 	case a.drag == dragDrawing:
 		cursor = ui.CursorMove
-	case a.drag == dragAxis || (len(a.bars) > 0 && hx > a.plotW && hy < a.plotH):
+	case a.drag == dragAxis || a.drag == dragPaneAxis || (len(a.bars) > 0 && hx > a.plotW && hy < a.boxH-timeH):
 		cursor = ui.CursorResizeNS
 	case len(a.bars) == 0 || hx > a.plotW:
 		cursor = ui.CursorDefault
@@ -329,18 +329,22 @@ func (a *application) chartMenu(m *ui.Menu) {
 	}
 }
 
-// resetView goes back to the newest bar at the default zoom, the prices fitted.
+// resetView goes back to the newest bar at the default zoom, the prices
+// fitted, the panes' too.
 func (a *application) resetView() {
 	a.view, a.scale = view{spacing: defaultView().spacing, offset: a.home()}, prices{}
+	for _, pv := range a.paneViews {
+		pv.scale = prices{}
+	}
 }
 
 // chartInput pans on a drag and zooms on the wheel, around the pointer; a
 // sideways swipe on a touchpad pans. Over the price axis the wheel, and a drag
 // up or down, scale the prices, which then stay put, the chart dragging them
 // up and down too, until a double click: on the axis that only fits them to
-// the bars again, on the chart it goes back to the newest bar as well. In an
-// indicator's pane it is the same, but that its prices always fit; the
-// lines between panes move.
+// the bars again, on the chart it goes back to the newest bar as well. An
+// indicator's pane is the same (paneInput), its prices scaled on their own;
+// the time is the same for all panes.
 func (a *application) chartInput(ev ui.InputEvent) bool {
 	n := len(a.bars)
 	if n == 0 || a.plotW <= 0 {
@@ -369,7 +373,10 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 		if onAxis && !a.manualScale() {
 			return false
 		}
-		a.drag, a.dragX, a.dragY, a.dragPane = dragChart, ev.X, ev.Y, !inMain && ev.Y < a.boxH-timeH
+		a.drag, a.dragX, a.dragY, a.dragPane = dragChart, ev.X, ev.Y, 0
+		if pn, ok := a.paneAt(ev.Y); ok {
+			a.dragPane = a.set.Indicators[pn.idx].ID
+		}
 		if onAxis {
 			a.drag = dragAxis
 		}
@@ -389,8 +396,11 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 			return true
 		}
 		a.view.pan(dx)
-		if a.scale.manual && !a.dragPane {
+		switch pv := a.paneViews[a.dragPane]; {
+		case a.dragPane == 0 && a.scale.manual:
 			a.scale.pan(dy, a.axis)
+		case pv != nil && pv.scale.manual:
+			pv.scale.pan(dy, pv.ax)
 		}
 	case ui.InputPointerUp:
 		if a.drag == dragNone {

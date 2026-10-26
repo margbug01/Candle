@@ -103,3 +103,51 @@ func TestPositionShots(t *testing.T) {
 		shot(t, tt, map[bool]string{true: "position-dark", false: "position-light"}[dark])
 	}
 }
+
+// The position is what loses the risk, a part of the account, at the
+// stop-loss: 1% of 1000 by default.
+func TestPositionSize(t *testing.T) {
+	d := drawing{Kind: "long", Pts: []point{{P: 100}, {P: 110}, {P: 95}, {P: 100}}}
+	if q, ok := positionSize(&d); !ok || math.Abs(q-2) > 1e-12 {
+		t.Fatalf("1%% of 1000 over 5: %v", q)
+	}
+	d.Account, d.Risk = 5000, 2
+	if q, _ := positionSize(&d); math.Abs(q-20) > 1e-12 {
+		t.Fatalf("2%% of 5000 over 5: %v", q)
+	}
+	d.Pts[2].P = 100
+	if _, ok := positionSize(&d); ok {
+		t.Fatal("sized without a stop-loss")
+	}
+	for q, want := range map[float64]string{0.024: "0.02400", 12.3: "12.30", 1234.6: "1235", 2: "2.000"} {
+		if got := qtyText(q); got != want {
+			t.Errorf("qtyText(%v) = %q, want %q", q, got, want)
+		}
+	}
+}
+
+// The bar of a selected position sets its account, as one step to undo.
+func TestPositionAccount(t *testing.T) {
+	a, tt := drawApp(t)
+	click(t, tt, "多头盈亏比")
+	clickPlot(tt, a, 300, 300)
+	r, ok := tt.Find("账户金额")
+	if !ok || a.accountPick.v != defaultAccount {
+		t.Fatal("no account in the bar")
+	}
+	tt.ClickAt(r.X+30, r.Y+r.H/2)
+	tt.Frame()
+	press(tt, ui.Ctrl, ui.KeyA)
+	for _, ch := range "2500" {
+		tt.Type(string(ch))
+		tt.Frame()
+	}
+	if d := drawings(a)[0]; d.Account != 2500 {
+		t.Fatalf("typed 2500: account %v", d.Account)
+	}
+	clickPlot(tt, a, 700, 60)
+	press(tt, ui.Ctrl, ui.KeyZ)
+	if d := drawings(a)[0]; d.Account != 0 {
+		t.Fatalf("one Ctrl+Z after typing the account: %v", d.Account)
+	}
+}

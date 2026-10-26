@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
+
 	"candle/market"
 )
 
@@ -26,7 +28,7 @@ func values(t *testing.T, key string, b []market.Bar, p ...float64) [][]float64 
 		t.Fatalf("no kind %q", key)
 	}
 	var s series
-	s.update(k, p, b, 1)
+	s.update(k, p, "", b, 1)
 	return s.out
 }
 
@@ -151,12 +153,12 @@ func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 		var s series
 		check := func(what string, from int) {
 			t.Helper()
-			s.update(k, ind.Params, bars, 1)
+			s.update(k, ind.Params, "", bars, 1)
 			if s.from != from {
 				t.Fatalf("%s %s: began at %d, want %d", ind.Kind, what, s.from, from)
 			}
 			var fresh series
-			fresh.update(k, ind.Params, bars, 1)
+			fresh.update(k, ind.Params, "", bars, 1)
 			for j := range k.plots {
 				same(t, ind.Kind+" "+what, s.out[j], fresh.out[j], 0)
 			}
@@ -166,7 +168,7 @@ func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 		bars[n-1].C *= 1.01
 		bars[n-1].H = max(bars[n-1].H, bars[n-1].C)
 		check("newest bar changed", n-1)
-		s.update(k, ind.Params, bars, 1)
+		s.update(k, ind.Params, "", bars, 1)
 		if s.from != n-1 {
 			t.Fatal("unchanged bars were worked out again")
 		}
@@ -178,13 +180,13 @@ func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 		check("the bar before the newest corrected", 0)
 		bars = append(append([]market.Bar(nil), all[:1000]...), bars...)
 		check("older bars in front", 0)
-		s.update(k, ind.Params, bars, 2)
+		s.update(k, ind.Params, "", bars, 2)
 		if s.from != 0 {
 			t.Fatalf("%s: another market began at %d", ind.Kind, s.from)
 		}
 		p := append([]float64(nil), ind.Params...)
 		p[0]++
-		s.update(k, p, bars, 2)
+		s.update(k, p, "", bars, 2)
 		if s.from != 0 {
 			t.Fatalf("%s: other parameters began at %d", ind.Kind, s.from)
 		}
@@ -202,7 +204,7 @@ func TestIndicatorsAreQuick(t *testing.T) {
 	t0 := time.Now()
 	for i, ind := range list {
 		k, _ := kindOf(ind.Kind)
-		ss[i].update(k, ind.Params, bars, 1)
+		ss[i].update(k, ind.Params, "", bars, 1)
 	}
 	full := time.Since(t0)
 	t0 = time.Now()
@@ -211,7 +213,7 @@ func TestIndicatorsAreQuick(t *testing.T) {
 		bars[len(bars)-1].C += 0.5
 		for i, ind := range list {
 			k, _ := kindOf(ind.Kind)
-			ss[i].update(k, ind.Params, bars, 1)
+			ss[i].update(k, ind.Params, "", bars, 1)
 		}
 	}
 	tick := time.Since(t0) / ticks
@@ -282,5 +284,51 @@ func TestIndicatorsAreKept(t *testing.T) {
 	back := loadSettings(file)
 	if len(back.Indicators) != len(indKinds) || !back.Indicators[1].Hidden || back.Indicators[0].Colors[0] != s.Indicators[0].Colors[0] {
 		t.Fatalf("read back %+v", back.Indicators)
+	}
+}
+
+// MA, EMA, BOLL, MACD and RSI work out from the close or another source, as
+// TradingView's; another source works everything out again.
+func TestSources(t *testing.T) {
+	b := []market.Bar{{O: 1, H: 4, L: 2, C: 3}, {T: 1, O: 2, H: 6, L: 2, C: 5}, {T: 2, O: 3, H: 8, L: 4, C: 7}}
+	k, _ := kindOf("ma")
+	for src, want := range map[string]float64{"": 5, "open": 2, "high": 6, "low": 8.0 / 3, "hl2": 13.0 / 3,
+		"hlc3": 41.0 / 9, "ohlc4": 11.75 / 3} {
+		var s series
+		s.update(k, []float64{3}, src, b, 1)
+		if got := s.at(0, 2); math.Abs(got-want) > 1e-12 {
+			t.Errorf("MA3 of %q: %v, want %v", src, got, want)
+		}
+	}
+	var s series
+	s.update(k, []float64{3}, "", b, 1)
+	s.update(k, []float64{3}, "high", b, 1)
+	if s.from != 0 || s.at(0, 2) != 6 {
+		t.Fatalf("another source began at %d: %v", s.from, s.at(0, 2))
+	}
+	opens := []float64{44, 45, 43, 46, 47, 45, 48}
+	bars := barsOfCloses(opens...)
+	for i := range bars {
+		bars[i].C = opens[len(opens)-1-i] // closes unlike the opens
+	}
+	rk, _ := kindOf("rsi")
+	var r series
+	r.update(rk, []float64{3}, "open", bars, 1)
+	same(t, "RSI of the opens", r.out[0], values(t, "rsi", barsOfCloses(opens...), 3)[0], 1e-12)
+}
+
+func TestFixSourceAndOffset(t *testing.T) {
+	list := fixIndicators([]indicator{
+		{ID: 1, Kind: "ma", Source: "hl2", Offset: 2.6},
+		{ID: 2, Kind: "ema", Source: "volume", Offset: 1e6},
+		{ID: 3, Kind: "kdj", Source: "high", Offset: 4},
+		{ID: 4, Kind: "macd", Source: "low", Offset: 4},
+	})
+	if list[0].Source != "hl2" || list[0].Offset != 3 || list[1].Source != "" || list[1].Offset != maxOffset ||
+		list[2].Source != "" || list[2].Offset != 0 || list[3].Source != "low" || list[3].Offset != 0 {
+		t.Fatalf("fixed %+v", list)
+	}
+	if len(list[3].Downs) != 3 || list[3].downColor(&indKinds[3], 2) != ui.Hex(barDown) {
+		t.Fatalf("MACD's bars: %+v", list[3].Downs)
 	}
 }
