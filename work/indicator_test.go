@@ -141,8 +141,8 @@ func allIndicators() []indicator {
 }
 
 // A new or changed newest bar is worked out from the bar before it on, and
-// comes out as working out all of them does; older bars in front, another
-// market or other parameters work out everything.
+// comes out as working out all of them does; a change further back, older
+// bars in front, another market or other parameters work out everything.
 func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 	all := fakeBars(3001, 60_000)
 	bars := append([]market.Bar(nil), all[1000:2999]...)
@@ -172,6 +172,10 @@ func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 		}
 		bars = append(bars, all[2999:3001]...)
 		check("two new bars", n-1)
+		// A refetch after a reconnect can correct the bar that just closed.
+		bars[len(bars)-2].C *= 0.99
+		bars[len(bars)-2].L = min(bars[len(bars)-2].L, bars[len(bars)-2].C)
+		check("the bar before the newest corrected", 0)
 		bars = append(append([]market.Bar(nil), all[:1000]...), bars...)
 		check("older bars in front", 0)
 		s.update(k, ind.Params, bars, 2)
