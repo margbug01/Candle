@@ -9,12 +9,13 @@ import (
 
 // settings are kept between runs in %APPDATA%\Candle\settings.json.
 type settings struct {
-	Symbol   string
-	Interval string
-	Watch    []string
-	Chart    style
-	Drawings map[string][]drawing // by market
-	Magnet   bool
+	Symbol     string
+	Interval   string
+	Watch      []string
+	Chart      style
+	Drawings   map[string][]drawing // by market
+	Magnet     bool
+	Indicators []indicator // for every market
 }
 
 func defaultSettings() settings {
@@ -51,6 +52,7 @@ func loadSettings(file string) settings {
 			return !ok || len(d.Pts) != t.points
 		})
 	}
+	s.Indicators = fixIndicators(s.Indicators)
 	if s.Symbol == "" {
 		s.Symbol = "BTCUSDT"
 	}
