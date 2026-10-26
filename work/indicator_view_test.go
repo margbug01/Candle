@@ -212,6 +212,9 @@ func TestPaneSeparatorDrags(t *testing.T) {
 	if a.plotH < minMainH-0.5 {
 		t.Fatalf("the candles were squeezed to %v", a.plotH)
 	}
+	if len(a.set.Indicators) != 2 {
+		t.Fatalf("dragging the lines left %+v", a.set.Indicators)
+	}
 }
 
 // In a pane the chart drags, zooms and resets as over the candles, and the
