@@ -17,15 +17,17 @@ type settings struct {
 	Drawings   map[string][]drawing // by market
 	Magnet     bool
 	Indicators []indicator // for every market
+	AutoUpdate bool        // check for a new version now and then
 }
 
 func defaultSettings() settings {
 	return settings{
-		Symbol:   "BTCUSDT",
-		Interval: "1h",
-		Watch:    []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "SUIUSDT", "ADAUSDT"},
-		Chart:    defaultStyle(),
-		Magnet:   true,
+		Symbol:     "BTCUSDT",
+		Interval:   "1h",
+		Watch:      []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "SUIUSDT", "ADAUSDT"},
+		Chart:      defaultStyle(),
+		Magnet:     true,
+		AutoUpdate: true,
 	}
 }
 

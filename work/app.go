@@ -121,6 +121,8 @@ type application struct {
 	page            int
 	picks           map[string]*choice[string]
 	colors          map[string]*choice[ui.Color]
+
+	upd updates
 }
 
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {
@@ -154,9 +156,18 @@ func (a *application) start() {
 	a.watchQuotes()
 	a.loadAll()
 	a.spawn(a.syncClock)
+	a.watchUpdates()
 }
 
-func (a *application) save() { saveSettings(a.file, a.set) }
+// save writes the settings. While the settings dialog is open the chart is
+// saved as it was: what the dialog shows is 确认's to keep.
+func (a *application) save() {
+	s := a.set
+	if a.editing {
+		s.Chart = a.before
+	}
+	saveSettings(a.file, s)
+}
 
 // open shows sym in bars of iv, keeping the zoom.
 func (a *application) open(sym, iv string) {

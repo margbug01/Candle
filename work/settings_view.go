@@ -15,6 +15,7 @@ var (
 	statusIcon = svg("<path d='M2.5 4h11M2.5 8h7M2.5 12h11'/>")
 	scaleIcon  = svg("<path d='M2.5 2v11.5H14'/><path d='m5 10 3-3 2 2 3.5-4.5'/>")
 	canvasIcon = svg("<path d='m10.5 2.5 3 3-8 8h-3v-3z'/><path d='m9 4 3 3'/>")
+	aboutIcon  = svg("<circle cx='8' cy='8' r='6'/><path d='M8 7.3v3.9'/><circle cx='8' cy='5.1' r='.5' fill='currentColor'/>")
 )
 
 var settingsPages = []struct {
@@ -26,6 +27,7 @@ var settingsPages = []struct {
 	{"状态行", statusIcon, (*application).statusPage},
 	{"坐标", scaleIcon, (*application).scalesPage},
 	{"版面", canvasIcon, (*application).canvasPage},
+	{"关于", aboutIcon, (*application).aboutPage},
 }
 
 // choice is a control's own copy of a value. MyGo writes a drop-down's or a
@@ -51,6 +53,7 @@ func (a *application) openSettings() {
 
 // closeSettings keeps the settings, or puts back what they were.
 func (a *application) closeSettings(keep bool) {
+	a.editing, a.dialog = false, false
 	if keep {
 		a.save()
 	} else {
@@ -59,7 +62,6 @@ func (a *application) closeSettings(keep bool) {
 		}
 		a.set.Chart = a.before
 	}
-	a.editing, a.dialog = false, false
 }
 
 // gearButton opens the settings.
@@ -99,7 +101,7 @@ func (a *application) settingsDialog(c *ui.Context, t *ui.Theme, k palette) {
 				})
 			})
 			ui.Row(c).FillWidth().Height(64).Shrink(0).Padding(0, 20).Gap(10).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(k.line).Children(func() {
-				if ui.Button(c, "恢复默认").Clicked() {
+				if settingsPages[a.page].label != "关于" && ui.Button(c, "恢复默认").Clicked() {
 					theme := a.set.Chart.Theme
 					a.set.Chart = defaultStyle()
 					a.set.Chart.Theme = theme

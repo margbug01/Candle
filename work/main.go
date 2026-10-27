@@ -18,13 +18,16 @@ func main() {
 		return
 	}
 	file := settingsPath()
+	// MyGo's updater asks GitHub with http.DefaultClient: the system proxy
+	// for it too.
+	http.DefaultTransport.(*http.Transport).Proxy = market.SystemProxy
 	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.Proxy = market.SystemProxy
 	bin := market.Binance{HTTP: &http.Client{Transport: tr, Timeout: 30 * time.Second}}
 	var win *mygo.Window
 	set := loadSettings(file)
 	applyTheme(set.Chart.Theme)
 	a := newApplication(set, file, bin, func(fn func()) { win.Update(fn) })
+	a.upd = myGoUpdates()
 	a.setMenu()
 	mygo.App.OnSecondInstance(func([]string, string) {
 		if win != nil {

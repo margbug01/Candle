@@ -20,7 +20,7 @@ const (
 	axisDrag       = 150 // DIPs dragged down the price axis to widen the prices e times
 )
 
-//go:embed resources/logo.png
+//go:embed assets/logo.png
 var logoPNG []byte
 
 // logo is the app's icon without its tile, for the top bar: 96 pixels shown
@@ -95,6 +95,7 @@ func (a *application) toolbar(c *ui.Context, t *ui.Theme, k palette) {
 		divider(c, k)
 		a.indicatorsButton(c, t, k)
 		ui.Box(c).Grow(1).FillHeight().DragWindow()
+		a.updateBadge(c, t, k)
 		a.gearButton(c, t, k)
 		a.status(c, t, k)
 		ui.Box(c).Width(bar.Right).Shrink(0)

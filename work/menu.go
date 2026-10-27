@@ -25,9 +25,18 @@ func (a *application) setMenu() {
 			}
 		})
 	}
+	checkUpdate := func(*mygo.MenuItem, *mygo.Window) {
+		a.post(func() {
+			a.openAbout()
+			if a.dialog {
+				a.checkUpdate(true)
+			}
+		})
+	}
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "Candle", Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout, Label: "关于 Candle"},
+			{Label: "检查更新…", Click: checkUpdate},
 			mygo.Separator(),
 			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: settings},
 			mygo.Separator(),
