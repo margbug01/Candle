@@ -6,9 +6,9 @@
 
 一个照着 TradingView 做的 Binance K 线图
 
-Go 写的原生 Windows 程序，不是网页套壳。拖动、缩放、十字光标、指标、画线、盈亏比，手感和 TradingView 对得上；一个 exe，不用账号，不用 API Key。
+Go 写的原生 Windows / macOS 程序，不是网页套壳。拖动、缩放、十字光标、指标、画线、盈亏比，手感和 TradingView 对得上；一个 exe 或一个 app，不用账号，不用 API Key。
 
-![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-23272e?style=flat-square&logo=windows&logoColor=white) ![Go 1.27](https://img.shields.io/badge/Go-1.27-23272e?style=flat-square&logo=go&logoColor=white) ![MyGo](https://img.shields.io/badge/UI-MyGo-26a69a?style=flat-square) ![Binance 现货](https://img.shields.io/badge/数据-Binance%20现货-f0b90b?style=flat-square) ![MIT](https://img.shields.io/badge/license-MIT-26a69a?style=flat-square)
+![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-23272e?style=flat-square&logo=windows&logoColor=white) ![macOS 12+](https://img.shields.io/badge/macOS-12%2B-23272e?style=flat-square&logo=apple&logoColor=white) ![Go 1.27](https://img.shields.io/badge/Go-1.27-23272e?style=flat-square&logo=go&logoColor=white) ![MyGo](https://img.shields.io/badge/UI-MyGo-26a69a?style=flat-square) ![Binance 现货](https://img.shields.io/badge/数据-Binance%20现货-f0b90b?style=flat-square) ![MIT](https://img.shields.io/badge/license-MIT-26a69a?style=flat-square)
 
 <img src="docs/screenshots/hero.webp" width="900" alt="主图加 MA、成交量和 MACD，浅色和深色">
 
@@ -26,7 +26,7 @@ Go 写的原生 Windows 程序，不是网页套壳。拖动、缩放、十字�
 
 **设置能调的都给你。** 五种图表类型、涨跌色、按前收盘价着色、标签颜色（白涨黑跌配白底也看得清）、时区、日期和时间格式、网格、十字光标样式、水印、边距……改了立刻生效，点取消就还原。浅色、深色或跟随系统。
 
-**小、安静。** 一个 13 MB 的 exe，不用装运行时。只用 Binance 的公开行情，不需要登录，也不碰你的账户。
+**小、安静。** Windows 上一个 13 MB 的 exe，macOS 上一个 12 MB 的 app，不用装运行时。只用 Binance 的公开行情，不需要登录，也不碰你的账户。
 
 ## 截图
 
@@ -53,9 +53,19 @@ go build -trimpath -ldflags="-H windowsgui -s -w" -o ../outputs/Candle.exe .
 
 打开 `outputs/Candle.exe` 就能用。
 
+macOS 上用 MyGo 打包成 app（Apple 芯片）：
+
+```sh
+git clone https://github.com/margbug01/Candle
+cd Candle/work
+go run github.com/egoist/mygo/cmd/mygo@v0.6.4 build -skip-dmg
+```
+
+打开 `outputs/darwin-arm64/Candle.app`，或者把它拖进「应用程序」。去掉 `-skip-dmg` 会再打一个 dmg。
+
 - 行情来自 Binance 的公开行情服务 `data-api.binance.vision` 和 `data-stream.binance.vision`，不需要 API Key。
-- 网络连不上 Binance 时，Candle 会走 Windows 的系统代理（设置 › 网络和 Internet › 代理，Clash、v2rayN 打开的就是它）；也认 `HTTPS_PROXY` / `HTTP_PROXY` 环境变量。
-- 自选、周期、指标、画线和图表设置都存在 `%APPDATA%\Candle\settings.json`，指标是所有交易对共用的，画线跟着交易对走。
+- 网络连不上 Binance 时，Candle 会走系统代理：Windows 上是「设置 › 网络和 Internet › 代理」，macOS 上是「系统设置 › 网络 › 代理」，Clash、v2rayN、Shoes 打开的就是它；也认 `HTTPS_PROXY` / `HTTP_PROXY` 环境变量。
+- 自选、周期、指标、画线和图表设置都存在 `%APPDATA%\Candle\settings.json`（macOS 上是 `~/Library/Application Support/Candle/settings.json`），指标是所有交易对共用的，画线跟着交易对走。
 
 ## 操作
 
@@ -68,10 +78,11 @@ go build -trimpath -ldflags="-H windowsgui -s -w" -o ../outputs/Candle.exe .
 | 双击图表 | 回到最新一根，恢复默认缩放 |
 | 拖窗格之间的线 | 调整副图高度 |
 | Esc | 放下画线工具，取消选中 |
-| Delete、Backspace | 删除选中的画线 |
-| Ctrl+Z、Ctrl+Y | 撤销、重做画线（Ctrl+Shift+Z 也是重做） |
-| Ctrl+C、Ctrl+V | 复制、粘贴画线 |
+| Delete、Backspace（Mac 键盘上的 delete） | 删除选中的画线 |
+| Ctrl+Z、Ctrl+Y（macOS：⌘Z、⇧⌘Z） | 撤销、重做画线（Ctrl+Shift+Z、⌘Y 也是重做） |
+| Ctrl+C、Ctrl+V（macOS：⌘C、⌘V） | 复制、粘贴画线 |
 | 右键图表 | 重置图表、坐标模式、隐藏画线、设置 |
+| ⌘,（macOS） | 打开设置 |
 
 ## 指标怎么算
 
@@ -96,7 +107,7 @@ MA、EMA、BOLL、MACD、RSI 可以换源（开、高、低、收、hl2、hlc3�
 
 - 只接了 Binance 现货；合约和美股还没有
 - 警报、脚本、多图布局、指标模板
-- 只做了 Windows（MyGo 本身跨平台，但系统代理那部分是 Windows 专用的）
+- macOS 只做了 Apple 芯片的版本，没有 Intel 的
 
 ## 常见问题
 
@@ -110,7 +121,7 @@ EMA、RSI、MACD 都是递推的，开头几十根会受起点影响，加载的
 <details>
 <summary><b>K 线一直加载不出来？</b></summary>
 
-先确认浏览器能打开 <https://data-api.binance.vision/api/v3/ping>。打不开的话，打开代理软件的「系统代理」再重试；Candle 每次连接都会重新读系统代理，不用重启。目前不支持 PAC 脚本和 SOCKS 代理。
+先确认浏览器能打开 <https://data-api.binance.vision/api/v3/ping>。打不开的话，打开代理软件的「系统代理」再重试；Candle 会重新读系统代理（Windows 上每次连接都读，macOS 上最多隔 3 秒），不用重启。目前不支持 PAC 脚本；SOCKS 代理只有 macOS 上认。
 
 </details>
 
@@ -129,6 +140,16 @@ go test ./...
 go build -trimpath -ldflags="-H windowsgui -s -w" -o ../outputs/Candle.exe .
 ```
 
+macOS 上：
+
+```sh
+cd work
+go test ./...
+go run github.com/egoist/mygo/cmd/mygo@v0.6.4 build -skip-dmg
+```
+
+app 的名字、bundle id 和版本在 `work/mygo.json`。没配开发者证书时是 ad-hoc 签名，本机直接能用；发给别人的话，对方第一次打开会被拦下，要到「系统设置 › 隐私与安全性」里点「仍要打开」。
+
 - 界面测试用 MyGo 的 `ui.Tester` 离屏渲染，真的去点按钮、拖图表；测试不联网。`CANDLE_SHOTS=<文件夹> go test` 会把画面存成 PNG。
 - `CANDLE_LIVE=1 go test -run TestLive .` 真连 Binance，跑一遍加载、实时推送、往前补页，并核对指标的增量计算和整段重算一致。
 - README 的截图是假数据：`CANDLE_README=<文件夹> go test -run TestReadmeShots .`，再回到仓库根目录 `python tools/shots.py <文件夹> docs/screenshots`（要 Pillow）。
@@ -136,6 +157,12 @@ go build -trimpath -ldflags="-H windowsgui -s -w" -o ../outputs/Candle.exe .
 
 ```powershell
 go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon resources/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.1.0 --file-version 0.1.0 --original-filename Candle.exe
+```
+
+- macOS 的图标另有母版 [docs/icon-macos.svg](docs/icon-macos.svg)：同一个图案，按 Mac 图标的网格缩到 824 像素，带阴影。改了在 Mac 上回到仓库根目录重新生成 `work/assets/icon-macos.png`（用系统的 Quick Look 渲染，不用装别的）：
+
+```sh
+go run tools/macicon.go docs/icon-macos.svg work/assets/icon-macos.png
 ```
 
 ## 致谢
