@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="work/resources/icon.png" width="128" alt="Candle 图标">
+<img src="work/assets/icon.png" width="128" alt="Candle 图标">
 
 # Candle
 
@@ -43,7 +43,19 @@ Go 写的原生 Windows / macOS 程序，不是网页套壳。拖动、缩放、
 
 ## 开始使用
 
-目前没有发布编译好的版本，自己编译一下就行（要装 [Go](https://go.dev/dl/)，版本低于 1.27.3 会自动下载对应的工具链）：
+到 [Releases](https://github.com/margbug01/Candle/releases/latest) 下载：
+
+- **Windows 10 / 11**：`Candle-v<版本>-windows-x64.zip`，解压到自己的文件夹（比如桌面或 `D:\Candle`），打开里面的 `Candle.exe`。别放进 `Program Files` 这类没有写入权限的地方，不然没法自己更新。
+- **macOS 12 及以上（Apple 芯片）**：`Candle-v<版本>-macos-arm64.dmg`，把 Candle 拖进「应用程序」再打开。第一次打开被系统拦下的话，看下面的常见问题。
+
+- 行情来自 Binance 的公开行情服务 `data-api.binance.vision` 和 `data-stream.binance.vision`，不需要 API Key。
+- 网络连不上 Binance 时，Candle 会走系统代理：Windows 上是「设置 › 网络和 Internet › 代理」，macOS 上是「系统设置 › 网络 › 代理」，Clash、v2rayN、Shoes 打开的就是它；也认 `HTTPS_PROXY` / `HTTP_PROXY` 环境变量。
+- 自选、周期、指标、画线和图表设置都存在 `%APPDATA%\Candle\settings.json`（macOS 上是 `~/Library/Application Support/Candle/settings.json`），指标是所有交易对共用的，画线跟着交易对走。
+- 能自己更新：「设置 › 关于」里点「检查更新」，有新版本就点「更新并重启」，下载、校验签名、替换，再自己重新打开，通常只下载变了的部分。打开时和之后每 12 小时也会自动问一次 GitHub，有新版本时顶栏右边会提示，只提示不自己装，可以关掉。自己编译的、还在 dmg 里打开的不能自己更新。
+
+### 自己编译
+
+要装 [Go](https://go.dev/dl/)，版本低于 1.27.3 会自动下载对应的工具链。Windows 上：
 
 ```powershell
 git clone https://github.com/margbug01/Candle
@@ -62,10 +74,6 @@ go run github.com/egoist/mygo/cmd/mygo@v0.6.4 build -skip-dmg
 ```
 
 打开 `outputs/darwin-arm64/Candle.app`，或者把它拖进「应用程序」。去掉 `-skip-dmg` 会再打一个 dmg。
-
-- 行情来自 Binance 的公开行情服务 `data-api.binance.vision` 和 `data-stream.binance.vision`，不需要 API Key。
-- 网络连不上 Binance 时，Candle 会走系统代理：Windows 上是「设置 › 网络和 Internet › 代理」，macOS 上是「系统设置 › 网络 › 代理」，Clash、v2rayN、Shoes 打开的就是它；也认 `HTTPS_PROXY` / `HTTP_PROXY` 环境变量。
-- 自选、周期、指标、画线和图表设置都存在 `%APPDATA%\Candle\settings.json`（macOS 上是 `~/Library/Application Support/Candle/settings.json`），指标是所有交易对共用的，画线跟着交易对走。
 
 ## 操作
 
@@ -126,6 +134,27 @@ EMA、RSI、MACD 都是递推的，开头几十根会受起点影响，加载的
 </details>
 
 <details>
+<summary><b>macOS 说「无法打开」或「无法验证开发者」？</b></summary>
+
+app 没有 Apple 开发者签名，也没有经过公证，第一次打开会被系统拦下。点「完成」后到「系统设置 › 隐私与安全性」，在最下面点「仍要打开」；也可以在终端运行 `xattr -dr com.apple.quarantine /Applications/Candle.app` 再打开。
+
+</details>
+
+<details>
+<summary><b>Windows 弹出「Windows 已保护你的电脑」？</b></summary>
+
+exe 没有代码签名证书，SmartScreen 不认识它。点「更多信息」，再点「仍要运行」。
+
+</details>
+
+<details>
+<summary><b>更新装不上？</b></summary>
+
+Candle 要能改写自己所在的位置才能更新：macOS 上把 app 拖进「应用程序」再打开，不要直接从 dmg 里开；Windows 上解压到自己的文件夹，不要放 `Program Files`。连 GitHub 也走系统代理，「检查更新失败」时先看看代理开着没有。实在不行，到 Releases 下载新版本覆盖就行，设置和画线都不在程序里，不会丢。
+
+</details>
+
+<details>
 <summary><b>为什么不把字体打包进去？</b></summary>
 
 主题写的是 `MiSans, system-ui`：装了 [MiSans](https://hyperos.mi.com/font/zh/download/) 就用，没装就用系统字体。
@@ -156,7 +185,7 @@ app 的名字、bundle id 和版本在 `work/mygo.json`。没配开发者证书�
 - 图标的母版是 [docs/icon.svg](docs/icon.svg)，顶栏用的是去掉底板的 [docs/logo.svg](docs/logo.svg)。exe 的图标、版本和 manifest 在 `work/rsrc_windows_amd64.syso`，改了用 go-winres 重新生成：
 
 ```powershell
-go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon resources/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.1.0 --file-version 0.1.0 --original-filename Candle.exe
+go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon assets/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.2.0 --file-version 0.2.0 --original-filename Candle.exe
 ```
 
 - macOS 的图标另有母版 [docs/icon-macos.svg](docs/icon-macos.svg)：同一个图案，按 Mac 图标的网格缩到 824 像素，带阴影。改了在 Mac 上回到仓库根目录重新生成 `work/assets/icon-macos.png`（用系统的 Quick Look 渲染，不用装别的）：
@@ -164,6 +193,28 @@ go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon resources/i
 ```sh
 go run tools/macicon.go docs/icon-macos.svg work/assets/icon-macos.png
 ```
+
+### 发版
+
+两个平台都在 Mac 上一次打出来。应用内更新只认用更新私钥签过名的包，所以发版必须用 `mygo build` 并带上私钥。
+
+1. 改版本号：`work/mygo.json` 的 `version`，上面 go-winres 命令里的两个版本号（重新生成 syso）。「设置 › 关于」显示的版本直接读 `mygo.json`。
+2. 在 [`CHANGELOG.md`](CHANGELOG.md) 写好这个版本的一节，「设置 › 关于」显示的更新说明就是它；缺这一节 `mygo build` 会停下。
+3. 在干净的工作区里打包：
+
+   ```sh
+   cd work
+   MYGO_UPDATER_PRIVATE_KEY="$(cat "$HOME/Library/Application Support/mygo/update-keys/Candle/mygo-update.key")" \
+     go run github.com/egoist/mygo/cmd/mygo@v0.6.4 build -platform darwin/arm64,windows/amd64
+   ```
+
+4. 在 GitHub 上建 `v<版本>` 的 Release，先存成草稿，把附件都传上去，确认后再发布并设为 Latest。应用读的是最新 Release 里的清单，草稿对它不可见，不会出现清单已经能读到、压缩包还没传完的情况。
+   - `outputs/darwin-arm64/`：dmg（改名为 `Candle-v<版本>-macos-arm64.dmg`）、`candle-<版本>-darwin-arm64.tar.gz`、`*.delta`、`update-darwin-arm64.json`
+   - `outputs/windows-amd64/`：把 `Candle.exe` 和 `LICENSE` 放进 `Candle/` 文件夹打成 `Candle-v<版本>-windows-x64.zip`，另附单独的 `Candle.exe`；再加上 `candle-<版本>-windows-amd64.tar.gz`、`*.delta`、`update-windows-amd64.json`
+
+`*.delta` 是从前几个版本到这一版的增量包，`mygo build` 会读已发布的版本自动做出来，应用更新时优先下载它。
+
+公钥写在 `work/mygo.json` 的 `updates` 里。私钥只放在发版的那台 Mac 上，权限 600，不进仓库。私钥丢了，已经装上的应用就收不到后续更新；被别人拿到，他就能给所有用户推任意代码。一定要另外在密码管理器里存一份。
 
 ## 致谢
 
