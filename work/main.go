@@ -25,6 +25,7 @@ func main() {
 	set := loadSettings(file)
 	applyTheme(set.Chart.Theme)
 	a := newApplication(set, file, bin, func(fn func()) { win.Update(fn) })
+	a.setMenu()
 	mygo.App.OnSecondInstance(func([]string, string) {
 		if win != nil {
 			win.Show()

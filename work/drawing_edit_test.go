@@ -48,12 +48,12 @@ func TestUndoRedo(t *testing.T) {
 		n     int
 		price float64
 	}{
-		{ui.Ctrl, ui.KeyZ, 1, moved},
-		{ui.Ctrl, ui.KeyZ, 1, drawn},
-		{ui.Ctrl, ui.KeyZ, 0, 0},
-		{ui.Ctrl, ui.KeyY, 1, drawn},
-		{ui.Ctrl | ui.Shift, ui.KeyZ, 1, moved},
-		{ui.Ctrl, ui.KeyY, 0, 0},
+		{ui.Cmd, ui.KeyZ, 1, moved},
+		{ui.Cmd, ui.KeyZ, 1, drawn},
+		{ui.Cmd, ui.KeyZ, 0, 0},
+		{ui.Cmd, ui.KeyY, 1, drawn},
+		{ui.Cmd | ui.Shift, ui.KeyZ, 1, moved},
+		{ui.Cmd, ui.KeyY, 0, 0},
 	} {
 		press(tt, s.mods, s.key)
 		if ds := drawings(a); len(ds) != s.n || s.n == 1 && ds[0].Pts[0].P != s.price {
@@ -64,7 +64,7 @@ func TestUndoRedo(t *testing.T) {
 	tt.Type("b")
 	tt.Frame()
 	tt.Frame()
-	press(tt, ui.Ctrl, ui.KeyZ)
+	press(tt, ui.Cmd, ui.KeyZ)
 	if len(a.undo) != 3 || len(drawings(a)) != 0 || a.query != "" {
 		t.Fatalf("Ctrl+Z in the search box undid a drawing: %d steps left, %d drawings", len(a.undo), len(drawings(a)))
 	}
@@ -86,9 +86,9 @@ func TestCopyAndPaste(t *testing.T) {
 	if len(ds) != 2 || a.sel != ds[1].ID || ds[1].ID == orig.ID || ds[1].Pts[0] != want[0] || ds[1].Pts[1] != want[1] {
 		t.Fatalf("copied %+v from %+v, want points %+v", ds, orig, want)
 	}
-	press(tt, ui.Ctrl, ui.KeyC)
-	press(tt, ui.Ctrl, ui.KeyV)
-	press(tt, ui.Ctrl, ui.KeyV)
+	press(tt, ui.Cmd, ui.KeyC)
+	press(tt, ui.Cmd, ui.KeyV)
+	press(tt, ui.Cmd, ui.KeyV)
 	ds = drawings(a)
 	if len(ds) != 4 || ds[3].Pts[0] == ds[2].Pts[0] || ds[2].Pts[0] == ds[1].Pts[0] {
 		t.Fatalf("pasted twice: %+v", ds)
@@ -97,7 +97,7 @@ func TestCopyAndPaste(t *testing.T) {
 	if ds[0].Pts[0] != orig.Pts[0] {
 		t.Fatal("the copies moved the original")
 	}
-	press(tt, ui.Ctrl, ui.KeyZ)
+	press(tt, ui.Cmd, ui.KeyZ)
 	if len(drawings(a)) != 3 {
 		t.Fatalf("Ctrl+Z after pasting: %d drawings", len(drawings(a)))
 	}
@@ -128,12 +128,14 @@ func TestLockedDrawingStaysPut(t *testing.T) {
 	if drawings(a)[0].Locked {
 		t.Fatal("解锁画线 left it locked")
 	}
-	press(tt, ui.Ctrl, ui.KeyZ)
+	press(tt, ui.Cmd, ui.KeyZ)
 	if !drawings(a)[0].Locked {
 		t.Fatal("Ctrl+Z did not lock it again")
 	}
 }
 
+// From 14 to 24 the text grows by at least half of those 10 pixels: line
+// heights differ between the system fonts, and macOS's is tighter at 20 and up.
 func TestTextSize(t *testing.T) {
 	a, tt := drawApp(t)
 	click(t, tt, "文字")
@@ -142,7 +144,7 @@ func TestTextSize(t *testing.T) {
 	h := a.textBox[id].H
 	click(t, tt, "文字大小")
 	click(t, tt, "24")
-	if d := drawings(a)[0]; d.Size != 24 || a.textBox[id].H < h+8 {
+	if d := drawings(a)[0]; d.Size != 24 || a.textBox[id].H < h+5 {
 		t.Fatalf("size %v, the text %v tall (was %v)", d.Size, a.textBox[id].H, h)
 	}
 }
@@ -159,7 +161,7 @@ func TestHorizontalLinePrice(t *testing.T) {
 	}
 	tt.ClickAt(r.X+30, r.Y+r.H/2)
 	tt.Frame()
-	press(tt, ui.Ctrl, ui.KeyA)
+	press(tt, ui.Cmd, ui.KeyA)
 	for _, ch := range "80000.5" { // a key at a time, as typed
 		tt.Type(string(ch))
 		tt.Frame()
@@ -169,7 +171,7 @@ func TestHorizontalLinePrice(t *testing.T) {
 		t.Fatalf("typed 80000.5, the line is at %v", p)
 	}
 	clickPlot(tt, a, 300, 420)
-	press(tt, ui.Ctrl, ui.KeyZ)
+	press(tt, ui.Cmd, ui.KeyZ)
 	if p := drawings(a)[0].Pts[0].P; p != drawn {
 		t.Fatalf("one Ctrl+Z after typing a price: %v, want %v", p, drawn)
 	}

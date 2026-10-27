@@ -325,10 +325,10 @@ func (a *application) chartMenu(m *ui.Menu) {
 		}
 	}
 	m.Separator()
-	if m.Item("撤销画线").Shortcut(ui.Ctrl, ui.KeyZ).Disabled(len(a.undo) == 0).Chosen() {
+	if m.Item("撤销画线").Shortcut(ui.Cmd, ui.KeyZ).Disabled(len(a.undo) == 0).Chosen() {
 		a.undoDrawings()
 	}
-	if m.Item("重做画线").Shortcut(ui.Ctrl, ui.KeyY).Disabled(len(a.redo) == 0).Chosen() {
+	if m.Item("重做画线").Shortcut(redoMods, redoKey).Disabled(len(a.redo) == 0).Chosen() {
 		a.redoDrawings()
 	}
 	if m.Item("隐藏画线").Checked(a.hide).Chosen() {

@@ -7,7 +7,8 @@ import (
 	"slices"
 )
 
-// settings are kept between runs in %APPDATA%\Candle\settings.json.
+// settings are kept between runs in %APPDATA%\Candle\settings.json, and on
+// macOS in ~/Library/Application Support/Candle/settings.json.
 type settings struct {
 	Symbol     string
 	Interval   string

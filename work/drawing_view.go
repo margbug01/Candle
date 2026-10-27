@@ -510,7 +510,7 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 			step := math.Pow(10, -float64(a.chartDecimals(d.Pts[0].P)))
 			ui.NumberInput(c.Key("drawing-price"), p, -1e15, 1e15, step).Width(170).ReadOnly(d.Locked).Label("价格").Tooltip("价格")
 		}
-		if barButton(c, t, k, "drawing-copy", "复制画线", "复制一份（Ctrl+C、Ctrl+V）", copyIcon, false).Clicked() {
+		if barButton(c, t, k, "drawing-copy", "复制画线", "复制一份（"+cmdKey+"C、"+cmdKey+"V）", copyIcon, false).Clicked() {
 			a.duplicate(*d)
 			return // d now points into the list before the copy was added
 		}
@@ -530,8 +530,8 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 }
 
 // drawingShortcuts: Escape puts the tool down, drops what is half drawn and
-// unselects; Delete and Backspace delete the selected drawing; Ctrl+Z,
-// Ctrl+Y, Ctrl+C and Ctrl+V undo, redo, copy and paste drawings. A text
+// unselects; Delete and Backspace delete the selected drawing; Cmd+Z,
+// Cmd+Y, Cmd+C and Cmd+V (Ctrl on Windows) undo, redo, copy and paste drawings. A text
 // input with the focus takes all of those keys first, so typing edits text.
 func (a *application) drawingShortcuts(c *ui.Context) {
 	if a.dialog || a.indList || a.indDialog {
@@ -550,16 +550,16 @@ func (a *application) drawingShortcuts(c *ui.Context) {
 		c.OnShortcut(0, ui.KeyBackspace, a.deleteSelected)
 	}
 	if len(a.undo) > 0 {
-		c.OnShortcut(ui.Ctrl, ui.KeyZ, a.undoDrawings)
+		c.OnShortcut(ui.Cmd, ui.KeyZ, a.undoDrawings)
 	}
 	if len(a.redo) > 0 {
-		c.OnShortcut(ui.Ctrl, ui.KeyY, a.redoDrawings)
-		c.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyZ, a.redoDrawings)
+		c.OnShortcut(ui.Cmd, ui.KeyY, a.redoDrawings)
+		c.OnShortcut(ui.Cmd|ui.Shift, ui.KeyZ, a.redoDrawings)
 	}
 	if a.sel != 0 {
-		c.OnShortcut(ui.Ctrl, ui.KeyC, a.copySelected)
+		c.OnShortcut(ui.Cmd, ui.KeyC, a.copySelected)
 	}
 	if a.clip != nil && a.clipSym == a.symbol {
-		c.OnShortcut(ui.Ctrl, ui.KeyV, a.pasteClip)
+		c.OnShortcut(ui.Cmd, ui.KeyV, a.pasteClip)
 	}
 }

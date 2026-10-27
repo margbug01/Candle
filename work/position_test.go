@@ -58,7 +58,7 @@ func TestLongPosition(t *testing.T) {
 	if r, _ := riskReward(&d); r <= 2 || !tt.HasText(ratioText(&d)) {
 		t.Fatalf("a farther take-profit, ratio %v", r)
 	}
-	press(tt, ui.Ctrl, ui.KeyZ)
+	press(tt, ui.Cmd, ui.KeyZ)
 	if r, _ := riskReward(&drawings(a)[0]); math.Abs(r-2) > 1e-9 {
 		t.Fatalf("Ctrl+Z left the ratio at %v", r)
 	}
@@ -147,7 +147,7 @@ func TestPositionAccount(t *testing.T) {
 	}
 	tt.ClickAt(r.X+30, r.Y+r.H/2)
 	tt.Frame()
-	press(tt, ui.Ctrl, ui.KeyA)
+	press(tt, ui.Cmd, ui.KeyA)
 	for _, ch := range "2500" {
 		tt.Type(string(ch))
 		tt.Frame()
@@ -156,7 +156,7 @@ func TestPositionAccount(t *testing.T) {
 		t.Fatalf("typed 2500: account %v", d.Account)
 	}
 	clickPlot(tt, a, 700, 60)
-	press(tt, ui.Ctrl, ui.KeyZ)
+	press(tt, ui.Cmd, ui.KeyZ)
 	if d := drawings(a)[0]; d.Account != 0 {
 		t.Fatalf("one Ctrl+Z after typing the account: %v", d.Account)
 	}

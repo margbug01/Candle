@@ -144,7 +144,7 @@ func TestIndicatorSettings(t *testing.T) {
 		r, _ := tt.Find("MA 周期")
 		tt.ClickAt(r.X+30, r.Y+r.H/2) // the middle is the stepper's
 		tt.Frame()
-		press(tt, ui.Ctrl, ui.KeyA)
+		press(tt, ui.Cmd, ui.KeyA)
 		for _, ch := range "30" { // a key at a time, as typed
 			tt.Type(string(ch))
 			tt.Frame()

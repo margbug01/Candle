@@ -249,7 +249,7 @@ func TestIndicatorSourceAndOffsetSettings(t *testing.T) {
 	r, _ := tt.Find("MA 偏移")
 	tt.ClickAt(r.X+30, r.Y+r.H/2)
 	tt.Frame()
-	press(tt, ui.Ctrl, ui.KeyA)
+	press(tt, ui.Cmd, ui.KeyA)
 	tt.Type("3")
 	tt.Frame()
 	tt.Frame()
