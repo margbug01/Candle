@@ -2,6 +2,11 @@
 
 应用里「设置 › 关于」显示的更新说明来自这里对应版本的一节；发版前先写好，`mygo build` 找不到这一节会停下。
 
+## 0.2.1
+
+- 带上第三方许可证：编进程序的 MyGo、coder/websocket、Go 标准库等的许可证原文放在 `licenses/`，Windows 在 Candle.exe 旁边，macOS 在 app 的 Resources 里
+- 其他没有变化
+
 ## 0.2.0
 
 - 新增 macOS 版（Apple 芯片），和 Windows 是同一套代码：系统代理读「系统设置 › 网络 › 代理」，快捷键用 ⌘，有自己的中文菜单栏，⌘, 打开设置

@@ -185,7 +185,7 @@ app 的名字、bundle id 和版本在 `work/mygo.json`。没配开发者证书�
 - 图标的母版是 [docs/icon.svg](docs/icon.svg)，顶栏用的是去掉底板的 [docs/logo.svg](docs/logo.svg)。exe 的图标、版本和 manifest 在 `work/rsrc_windows_amd64.syso`，改了用 go-winres 重新生成：
 
 ```powershell
-go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon assets/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.2.0 --file-version 0.2.0 --original-filename Candle.exe
+go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon assets/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.2.1 --file-version 0.2.1 --original-filename Candle.exe
 ```
 
 - macOS 的图标另有母版 [docs/icon-macos.svg](docs/icon-macos.svg)：同一个图案，按 Mac 图标的网格缩到 824 像素，带阴影。改了在 Mac 上回到仓库根目录重新生成 `work/assets/icon-macos.png`（用系统的 Quick Look 渲染，不用装别的）：
@@ -198,9 +198,10 @@ go run tools/macicon.go docs/icon-macos.svg work/assets/icon-macos.png
 
 两个平台都在 Mac 上一次打出来。应用内更新只认用更新私钥签过名的包，所以发版必须用 `mygo build` 并带上私钥。
 
-1. 改版本号：`work/mygo.json` 的 `version`，上面 go-winres 命令里的两个版本号（重新生成 syso）。「设置 › 关于」显示的版本直接读 `mygo.json`。
-2. 在 [`CHANGELOG.md`](CHANGELOG.md) 写好这个版本的一节，「设置 › 关于」显示的更新说明就是它；缺这一节 `mygo build` 会停下。
-3. 在干净的工作区里打包：
+1. 改了 `work/go.mod` 的话，在仓库根目录运行 `go run tools/licenses.go` 重新生成 `licenses/`（第三方许可证，随程序发出去；漏了的话 `go test` 会提醒）。
+2. 改版本号：`work/mygo.json` 的 `version`，上面 go-winres 命令里的两个版本号（重新生成 syso）。「设置 › 关于」显示的版本直接读 `mygo.json`。
+3. 在 [`CHANGELOG.md`](CHANGELOG.md) 写好这个版本的一节，「设置 › 关于」显示的更新说明就是它；缺这一节 `mygo build` 会停下。
+4. 在干净的工作区里打包：
 
    ```sh
    cd work
@@ -208,9 +209,9 @@ go run tools/macicon.go docs/icon-macos.svg work/assets/icon-macos.png
      go run github.com/egoist/mygo/cmd/mygo@v0.6.4 build -platform darwin/arm64,windows/amd64
    ```
 
-4. 在 GitHub 上建 `v<版本>` 的 Release，先存成草稿，把附件都传上去，确认后再发布并设为 Latest。应用读的是最新 Release 里的清单，草稿对它不可见，不会出现清单已经能读到、压缩包还没传完的情况。
+5. 在 GitHub 上建 `v<版本>` 的 Release，先存成草稿，把附件都传上去，确认后再发布并设为 Latest。应用读的是最新 Release 里的清单，草稿对它不可见，不会出现清单已经能读到、压缩包还没传完的情况。
    - `outputs/darwin-arm64/`：dmg（改名为 `Candle-v<版本>-macos-arm64.dmg`）、`candle-<版本>-darwin-arm64.tar.gz`、`*.delta`、`update-darwin-arm64.json`
-   - `outputs/windows-amd64/`：把 `Candle.exe` 和 `LICENSE` 放进 `Candle/` 文件夹打成 `Candle-v<版本>-windows-x64.zip`，另附单独的 `Candle.exe`；再加上 `candle-<版本>-windows-amd64.tar.gz`、`*.delta`、`update-windows-amd64.json`
+   - `outputs/windows-amd64/`：把 `Candle.exe`、`LICENSE` 和 `licenses/` 放进 `Candle/` 文件夹打成 `Candle-v<版本>-windows-x64.zip`，另附单独的 `Candle.exe`；再加上 `candle-<版本>-windows-amd64.tar.gz`、`*.delta`、`update-windows-amd64.json`
 
 `*.delta` 是从前几个版本到这一版的增量包，`mygo build` 会读已发布的版本自动做出来，应用更新时优先下载它。
 
@@ -228,4 +229,4 @@ Candle 是个人项目，和 TradingView、Binance 没有关系，也不构成�
 
 ## 许可证
 
-[MIT](LICENSE)
+Candle 以 [MIT](LICENSE) 发布。编进程序的 MyGo、coder/websocket、Go 标准库等第三方代码按各自的许可证分发，原文都在 [`licenses/`](licenses/)：Windows 版在 `Candle.exe` 旁边，macOS 版在 `Candle.app/Contents/Resources/licenses/`。

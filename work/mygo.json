@@ -1,10 +1,10 @@
 {
   "name": "Candle",
   "identifier": "dev.margbug.candle",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "out": "../outputs",
   "icon": "assets/icon-macos.png",
-  "resources": ["../LICENSE"],
+  "resources": ["../LICENSE", "../licenses"],
   "updates": {
     "publicKey": "a02RsNUjs3R+Dutl5itxgaAErsY9JDRnij90mtMWObI=",
     "github": "margbug01/Candle",
