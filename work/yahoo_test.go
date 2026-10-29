@@ -208,3 +208,41 @@ func TestFollowPassesEveryQuote(t *testing.T) {
 		t.Fatal("nothing passed on")
 	}
 }
+
+// A future's chart chooses its hours, ETH or RTH: RTH reloads the bars from
+// a feed in the regular hours and says so in the legend; days have no such
+// choice; a coin's chart has no buttons.
+func TestSessionButtons(t *testing.T) {
+	a := yahooApp("CME:NQ", "1h", 3_600_000)
+	a.spawn = func(f func()) {}
+	tt := newTester(a, true)
+	if !tt.HasText("ETH") || !tt.HasText("RTH") || tt.HasText(" · RTH") {
+		t.Fatal("no ETH and RTH buttons, or RTH said before it is chosen")
+	}
+	gen := a.gen
+	click(t, tt, "RTH")
+	tt.Frame()
+	if !a.set.FuturesRTH || a.gen == gen || !a.loading {
+		t.Fatalf("RTH chosen: setting %v, reloaded %v", a.set.FuturesRTH, a.gen != gen)
+	}
+	if y, ok := a.barFeed("CME:NQ").(market.Yahoo); !ok || !y.RTH {
+		t.Fatal("the bars come from a feed of every hour")
+	}
+	a.loading, a.bars = false, fakeBars(600, 3_600_000)
+	tt.Frame()
+	if !tt.HasText(" · RTH") {
+		t.Fatal("the legend does not say RTH")
+	}
+	shot(t, tt, "future-rth")
+	a.open("CME:NQ", "1d")
+	a.loading, a.bars = false, fakeBars(600, 86_400_000)
+	tt.Frame()
+	if tt.HasText(" · RTH") || a.rth() {
+		t.Fatal("days in the regular hours")
+	}
+	a.open("BTCUSDT", "1h")
+	tt.Frame()
+	if tt.HasText("RTH") {
+		t.Fatal("RTH on a coin's chart")
+	}
+}

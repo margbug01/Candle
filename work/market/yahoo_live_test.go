@@ -65,6 +65,22 @@ func TestYahooLive(t *testing.T) {
 			t.Fatalf("%v: no older page after a full one", c)
 		}
 	}
+	// The regular hours: hours from 9:30, quarters within 9:30–16:15.
+	rth := y
+	rth.RTH = true
+	for _, iv := range []string{"1h", "15m", "4h"} {
+		bars, err := rth.Klines(ctx, "CME:NQ", iv, 0, 1000)
+		if err != nil || len(bars) == 0 {
+			t.Fatalf("RTH %s: %d, %v", iv, len(bars), err)
+		}
+		for _, b := range bars {
+			if !InRTH(b.T) || iv != "15m" && sinceMidnight(b.T)%3_600_000 != 1_800_000 {
+				t.Fatalf("RTH %s bar at %s", iv, time.UnixMilli(b.T).In(newYork).Format("01-02 Mon 15:04"))
+			}
+		}
+		last := bars[len(bars)-1]
+		t.Logf("RTH %s: %d bars, %s .. %s, last %+v", iv, len(bars), time.UnixMilli(bars[0].T).In(newYork).Format("01-02 15:04"), time.UnixMilli(last.T).In(newYork).Format("01-02 15:04"), last)
+	}
 	syms, err := y.Symbols(ctx, "CME:MNQ", "US:AAPL")
 	if err != nil || len(syms) != 2 || syms[1].Tick != 0.01 || syms[1].Desc == "" {
 		t.Fatalf("symbols: %+v, %v", syms, err)

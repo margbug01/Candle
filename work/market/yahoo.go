@@ -28,6 +28,12 @@ type Yahoo struct {
 	HTTP  *http.Client
 	Base  string        // the endpoints' host, "" for Yahoo's; for the tests
 	Every time.Duration // how often Stream and Watch ask, 0 for 5 and 10 seconds
+	// RTH keeps a future's intraday bars to the regular trading hours, 8:30
+	// to 15:15 in Chicago (9:30 to 16:15 New York time), as TradingView's
+	// RTH does for every CME, CBOT, NYMEX and COMEX contract; without it
+	// they cover the whole electronic session (ETH). Days and weeks are the
+	// same either way.
+	RTH bool
 }
 
 const yahooBase = "https://query1.finance.yahoo.com"
@@ -86,30 +92,100 @@ func InstrumentOf(id string) (Instrument, bool) {
 	return Instrument{}, false
 }
 
-// A yahooInterval is how one of Candle's bar sizes is asked of Yahoo: its own
-// name for it, how far back it goes, how much one request may span, and for
-// 4 hours, how many hourly bars make one.
+// A yahooInterval is a bar size of Yahoo's: its name, how far back it goes
+// and how much one request may span.
 type yahooInterval struct {
-	name  string
-	ms    int64         // of Yahoo's bars
-	back  time.Duration // 0: all the history there is
-	span  time.Duration // 0: no limit
-	group int
+	name string
+	ms   int64         // of Yahoo's bars
+	back time.Duration // 0: all the history there is
+	span time.Duration // 0: no limit
 }
 
 const day = 24 * time.Hour
 
-// Yahoo keeps 1-minute bars for 30 days, 7 to a request, 5 and 15 minutes for
+// Yahoo keeps 1-minute bars for 30 days, 7 to a request, 5 to 30 minutes for
 // 60 days and hours for 730; the limits are checked against its clock, so a
 // day short of them.
 var yahooIntervals = map[string]yahooInterval{
-	"1m":  {"1m", 60_000, 29 * day, 7 * day, 1},
-	"5m":  {"5m", 300_000, 59 * day, 0, 1},
-	"15m": {"15m", 900_000, 59 * day, 0, 1},
-	"1h":  {"1h", 3_600_000, 729 * day, 0, 1},
-	"4h":  {"1h", 3_600_000, 729 * day, 0, 4},
-	"1d":  {"1d", 86_400_000, 0, 0, 1},
-	"1w":  {"1wk", 604_800_000, 0, 0, 1},
+	"1m":  {"1m", 60_000, 29 * day, 7 * day},
+	"5m":  {"5m", 300_000, 59 * day, 0},
+	"15m": {"15m", 900_000, 59 * day, 0},
+	"30m": {"30m", 1_800_000, 59 * day, 0},
+	"1h":  {"1h", 3_600_000, 729 * day, 0},
+	"1d":  {"1d", 86_400_000, 0, 0},
+	"1wk": {"1wk", 604_800_000, 0, 0},
+}
+
+// A barPlan is how Candle's bars of a size are made from Yahoo's: from its
+// bars of src, group of them to one (1: as they are) counting from start,
+// when the session holding a time began, and of them only those keep
+// takes (nil: all).
+type barPlan struct {
+	src   yahooInterval
+	group int
+	start func(int64) int64
+	keep  func(int64) bool
+}
+
+// size is the plan's bars' length, in ms.
+func (p barPlan) size() int64 { return p.src.ms * int64(p.group) }
+
+// The regular trading hours of CME's contracts, New York time: 9:30 to 16:15.
+const (
+	rthOpen  = (9*60 + 30) * 60_000
+	rthClose = (16*60 + 15) * 60_000
+)
+
+// sinceMidnight is the time of day in New York at t, Unix ms, in ms.
+func sinceMidnight(t int64) int64 {
+	n := time.UnixMilli(t).In(newYork)
+	return int64(n.Hour()*3600+n.Minute()*60+n.Second())*1000 + int64(n.Nanosecond()/1e6)
+}
+
+// InRTH is whether a bar opening at t (Unix ms) is in a future's regular
+// trading hours.
+func InRTH(t int64) bool {
+	d := sinceMidnight(t)
+	return d >= rthOpen && d < rthClose
+}
+
+// rthStart is when the regular session holding t began: 9:30 New York time
+// that day.
+func rthStart(t int64) int64 {
+	n := time.UnixMilli(t).In(newYork)
+	return time.Date(n.Year(), n.Month(), n.Day(), 9, 30, 0, 0, newYork).UnixMilli()
+}
+
+// plan is how y makes in's bars of interval: as Yahoo has them, 4 hours of
+// four from the session's start, and for a future's regular hours bars
+// opening from 9:30 on, from Yahoo's that divide both (its hours open on
+// the hour: an hour from 9:30 is two half hours, which go back 60 days).
+func (y Yahoo) plan(in Instrument, interval string) (barPlan, bool) {
+	p := barPlan{group: 1, start: in.SessionStart}
+	switch interval {
+	case "1m", "5m", "15m", "1h":
+		p.src = yahooIntervals[interval]
+	case "4h":
+		p.src, p.group = yahooIntervals["1h"], 4
+	case "1d":
+		p.src = yahooIntervals["1d"]
+	case "1w":
+		p.src = yahooIntervals["1wk"]
+	default:
+		return barPlan{}, false
+	}
+	if !y.RTH || !in.Future || p.src.ms >= 86_400_000 {
+		return p, true
+	}
+	size := p.size()
+	for _, name := range []string{"1h", "30m", "15m", "5m", "1m"} {
+		if s := yahooIntervals[name]; size%s.ms == 0 && rthOpen%s.ms == 0 {
+			p.src, p.group = s, int(size/s.ms)
+			break
+		}
+	}
+	p.start, p.keep = rthStart, InRTH
+	return p, true
 }
 
 // newYork tells the sessions apart: a stock's begins at 9:30 there, a CME
@@ -145,10 +221,11 @@ func (y Yahoo) Klines(ctx context.Context, symbol, interval string, end int64, l
 	if !ok {
 		return nil, fmt.Errorf("yahoo: no market %q", symbol)
 	}
-	yi, ok := yahooIntervals[interval]
+	p, ok := y.plan(in, interval)
 	if !ok {
 		return nil, fmt.Errorf("yahoo: no %s bars", interval)
 	}
+	yi := p.src
 	now := time.Now()
 	to := now.Add(time.Minute)
 	if end > 0 {
@@ -161,7 +238,7 @@ func (y Yahoo) Klines(ctx context.Context, symbol, interval string, end int64, l
 	if !to.After(floor) {
 		return nil, nil
 	}
-	want := limit * yi.group
+	want := limit * p.group
 	span := time.Duration(want) * time.Duration(yi.ms) * time.Millisecond * 2
 	var base []Bar // Yahoo's bars from from onwards, oldest first
 	var out []Bar
@@ -180,11 +257,13 @@ func (y Yahoo) Klines(ctx context.Context, symbol, interval string, end int64, l
 		}
 		// Yahoo stretches the range to whole days for daily bars: keep to it,
 		// or pages overlap.
-		got = slices.DeleteFunc(got, func(b Bar) bool { return b.T < from.UnixMilli() || b.T >= to.UnixMilli() })
+		got = slices.DeleteFunc(got, func(b Bar) bool {
+			return b.T < from.UnixMilli() || b.T >= to.UnixMilli() || p.keep != nil && !p.keep(b.T)
+		})
 		base = append(got, base...)
 		out = base
-		if yi.group > 1 {
-			out = groupBars(base, yi.group, yi.ms, in.SessionStart, from.UnixMilli())
+		if p.group > 1 {
+			out = groupBars(base, p.group, yi.ms, p.start, from.UnixMilli())
 		}
 		if len(out) >= limit || atFloor {
 			break
@@ -195,7 +274,8 @@ func (y Yahoo) Klines(ctx context.Context, symbol, interval string, end int64, l
 }
 
 // groupBars merges bars of ms each into bars of n of them, starting from the
-// session's first: four hours from 18:00 for a future, from 9:30 for a stock.
+// session's first: four hours from 18:00 for a future, from 9:30 for a stock
+// or a future's regular hours.
 // Groups beginning before from are missing bars and left out.
 func groupBars(bars []Bar, n int, ms int64, sessionStart func(int64) int64, from int64) []Bar {
 	size := ms * int64(n)
@@ -249,15 +329,16 @@ func (y Yahoo) chart(ctx context.Context, in Instrument, yi yahooInterval, from,
 // first time, so that a closed market has its last bar too.
 func (y Yahoo) Stream(ctx context.Context, symbol, interval string, fn func(bar Bar, closed bool, at int64)) error {
 	in, ok := InstrumentOf(symbol)
-	yi, ok2 := yahooIntervals[interval]
+	p, ok2 := y.plan(in, interval)
 	if !ok || !ok2 {
 		return fmt.Errorf("yahoo: no %s bars of %q", interval, symbol)
 	}
+	yi := p.src
 	every := y.Every
 	if every == 0 {
 		every = 5 * time.Second
 	}
-	size := yi.ms * int64(yi.group)
+	size := p.size()
 	var last int64 // the newest bar's open, Unix ms
 	for {
 		now := time.Now()
@@ -272,8 +353,11 @@ func (y Yahoo) Stream(ctx context.Context, symbol, interval string, fn func(bar 
 		if err != nil {
 			return fmt.Errorf("yahoo stream: %w", err)
 		}
-		if yi.group > 1 {
-			got = groupBars(got, yi.group, yi.ms, in.SessionStart, from)
+		if p.keep != nil {
+			got = slices.DeleteFunc(got, func(b Bar) bool { return !p.keep(b.T) })
+		}
+		if p.group > 1 {
+			got = groupBars(got, p.group, yi.ms, p.start, from)
 		}
 		if n := len(got); n > 0 {
 			got = got[max(n-2, 0):]
@@ -547,6 +631,8 @@ func granularity(name string) int64 {
 		return 300
 	case "15m":
 		return 900
+	case "30m":
+		return 1800
 	case "1h", "60m":
 		return 3600
 	case "1d":

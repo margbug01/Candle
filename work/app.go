@@ -198,18 +198,18 @@ func (a *application) open(sym, iv string) {
 	a.view.offset = a.home()
 	a.set.Symbol, a.set.Interval = sym, iv
 	a.save()
-	ctx, gen := a.ctx, a.gen
+	ctx, gen, feed := a.ctx, a.gen, a.barFeed(sym)
 	_, known := a.infos[sym]
-	a.spawn(func() { a.feed(ctx, gen, sym, iv, !known) })
+	a.spawn(func() { a.feed(ctx, gen, feed, sym, iv, !known) })
 }
 
 // feed loads the newest page, then follows the live bar, reconnecting with a
 // growing pause and filling in what it missed meanwhile.
-func (a *application) feed(ctx context.Context, gen int, sym, iv string, needInfo bool) {
+func (a *application) feed(ctx context.Context, gen int, feed market.Feed, sym, iv string, needInfo bool) {
 	if needInfo {
 		go a.lookup(ctx, []string{sym})
 	}
-	bars, err := a.feedOf(sym).Klines(ctx, sym, iv, 0, 1000)
+	bars, err := feed.Klines(ctx, sym, iv, 0, 1000)
 	if ctx.Err() != nil {
 		return
 	}
@@ -230,7 +230,7 @@ func (a *application) feed(ctx context.Context, gen int, sym, iv string, needInf
 	pause := time.Second
 	for {
 		heard := false
-		a.feedOf(sym).Stream(ctx, sym, iv, func(bar market.Bar, _ bool, _ int64) {
+		feed.Stream(ctx, sym, iv, func(bar market.Bar, _ bool, _ int64) {
 			heard = true
 			a.post(func() {
 				if gen == a.gen {
@@ -256,7 +256,7 @@ func (a *application) feed(ctx context.Context, gen int, sym, iv string, needInf
 		case <-time.After(pause):
 		}
 		pause = min(pause*2, 30*time.Second)
-		if got, err := a.feedOf(sym).Klines(ctx, sym, iv, 0, 1000); err == nil && len(got) > 0 {
+		if got, err := feed.Klines(ctx, sym, iv, 0, 1000); err == nil && len(got) > 0 {
 			a.post(func() {
 				if gen != a.gen {
 					return
@@ -308,9 +308,9 @@ func (a *application) loadOlder() {
 		return
 	}
 	a.older = true
-	ctx, gen, sym, iv, end := a.ctx, a.gen, a.symbol, a.interval, a.bars[0].T-1
+	ctx, gen, sym, iv, end, feed := a.ctx, a.gen, a.symbol, a.interval, a.bars[0].T-1, a.barFeed(a.symbol)
 	a.spawn(func() {
-		got, err := a.feedOf(sym).Klines(ctx, sym, iv, end, 1000)
+		got, err := feed.Klines(ctx, sym, iv, end, 1000)
 		a.post(func() {
 			if gen != a.gen {
 				return
@@ -462,6 +462,25 @@ func (a *application) feedOf(sym string) market.Feed {
 		return a.yahoo
 	}
 	return a.bin
+}
+
+// barFeed is where sym's bars come from, as the chart shows them: a
+// future's in the regular trading hours only when the settings say. It reads
+// the settings, so it is called on the main thread and the feed handed on.
+func (a *application) barFeed(sym string) market.Feed {
+	if market.IsYahoo(sym) {
+		y := a.yahoo
+		y.RTH = a.set.FuturesRTH
+		return y
+	}
+	return a.bin
+}
+
+// rth is whether the chart shows a future's regular trading hours only: the
+// setting is on, and the bars are shorter than a day.
+func (a *application) rth() bool {
+	in, _ := market.InstrumentOf(a.symbol)
+	return in.Future && a.set.FuturesRTH && a.intervalMs() < 86_400_000
 }
 
 // byFeed splits names into Binance's and Yahoo's, keeping their order.

@@ -147,7 +147,7 @@ func (f *fakeYahoo) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.asked = append(f.asked, fmt.Sprintf("%s %d %d", iv, p1, p2))
 	f.mu.Unlock()
 	size := granularity(iv)
-	limits := map[string]time.Duration{"1m": 30 * day, "1h": 730 * day}
+	limits := map[string]time.Duration{"1m": 30 * day, "5m": 60 * day, "15m": 60 * day, "30m": 60 * day, "1h": 730 * day}
 	if lim, ok := limits[iv]; ok && time.Unix(p1, 0).Before(time.Now().Add(-lim)) {
 		w.WriteHeader(422)
 		fmt.Fprintf(w, `{"chart":{"result":null,"error":{"code":"Unprocessable Entity","description":"%s data not available"}}}`, iv)
@@ -370,4 +370,95 @@ func TestInstrumentOf(t *testing.T) {
 			t.Errorf("%s ticks of %v don't make a point", f.Code, f.Tick)
 		}
 	}
+}
+
+// A future's regular hours are made of Yahoo's bars that open from 9:30 on:
+// minutes as they are, an hour of two half hours, 4 hours of eight; days
+// are the same as without.
+func TestPlan(t *testing.T) {
+	nq, _ := InstrumentOf("CME:NQ")
+	aapl, _ := InstrumentOf("US:AAPL")
+	for _, c := range []struct {
+		in       Instrument
+		rth      bool
+		iv, src  string
+		group    int
+		filtered bool
+	}{
+		{nq, false, "1h", "1h", 1, false},
+		{nq, false, "4h", "1h", 4, false},
+		{nq, true, "1m", "1m", 1, true},
+		{nq, true, "5m", "5m", 1, true},
+		{nq, true, "15m", "15m", 1, true},
+		{nq, true, "1h", "30m", 2, true},
+		{nq, true, "4h", "30m", 8, true},
+		{nq, true, "1d", "1d", 1, false},
+		{nq, true, "1w", "1wk", 1, false},
+		{aapl, true, "4h", "1h", 4, false}, // a stock's hours are its own
+	} {
+		p, ok := Yahoo{RTH: c.rth}.plan(c.in, c.iv)
+		if !ok || p.src.name != c.src || p.group != c.group || (p.keep != nil) != c.filtered {
+			t.Errorf("%s %s rth %v: from %s × %d, filtered %v", c.in.Code, c.iv, c.rth, p.src.name, p.group, p.keep != nil)
+		}
+	}
+	if _, ok := (Yahoo{}).plan(nq, "3m"); ok {
+		t.Error("3-minute bars planned")
+	}
+	ny := func(h, m int) int64 { return time.Date(2026, 10, 28, h, m, 0, 0, newYork).UnixMilli() }
+	for at, want := range map[int64]bool{ny(9, 29): false, ny(9, 30): true, ny(16, 14): true, ny(16, 15): false, ny(18, 0): false, ny(3, 0): false} {
+		if InRTH(at) != want {
+			t.Errorf("%s in the regular hours: %v", time.UnixMilli(at).In(newYork).Format("15:04"), !want)
+		}
+	}
+}
+
+// In the regular hours an hour opens at 9:30, 10:30 … 15:30, the last one
+// three quarters long, made of whole half hours; minutes keep to 9:30–16:15;
+// the stream too.
+func TestYahooRTH(t *testing.T) {
+	f := &fakeYahoo{first: time.Now().Add(-400 * day)}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	y := Yahoo{HTTP: srv.Client(), Base: srv.URL, RTH: true}
+	ctx := context.Background()
+	hours, err := y.Klines(ctx, "CME:NQ", "1h", 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Half hours go back 60 days: about 40 days of 7 hours.
+	if len(hours) < 200 || len(hours) >= 1000 || time.Since(time.UnixMilli(hours[0].T)) > 60*day {
+		t.Fatalf("%d hours from %s", len(hours), time.UnixMilli(hours[0].T))
+	}
+	for _, b := range hours {
+		at := time.UnixMilli(b.T).In(newYork)
+		m := at.Hour()*60 + at.Minute()
+		// Two half hours each, 15:30 too (15:30 and 16:00); the newest may be under way.
+		if m < 9*60+30 || m > 15*60+30 || m%60 != 30 || b.V != 2 && b.T != hours[len(hours)-1].T {
+			t.Fatalf("an hour at %s of %v half hours", at.Format("Mon 15:04"), b.V)
+		}
+	}
+	quarters, err := y.Klines(ctx, "CME:NQ", "15m", 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range quarters {
+		if !InRTH(b.T) {
+			t.Fatalf("a quarter at %s", time.UnixMilli(b.T).In(newYork).Format("Mon 15:04"))
+		}
+	}
+	// A thousand of the sparser regular quarters reach further back.
+	if eth, _ := (Yahoo{HTTP: srv.Client(), Base: srv.URL}).Klines(ctx, "CME:NQ", "15m", 0, 1000); len(quarters) != 1000 || eth[0].T <= quarters[0].T {
+		t.Fatalf("%d regular quarters from %s, the whole session's from %s", len(quarters), time.UnixMilli(quarters[0].T), time.UnixMilli(eth[0].T))
+	}
+	y.Every = time.Millisecond
+	sctx, cancel := context.WithCancel(ctx)
+	n := 0
+	y.Stream(sctx, "CME:NQ", "1h", func(b Bar, _ bool, _ int64) {
+		if !InRTH(b.T) || sinceMidnight(b.T)%3_600_000 != 1_800_000 {
+			t.Errorf("streamed an hour at %s", time.UnixMilli(b.T).In(newYork).Format("Mon 15:04"))
+		}
+		if n++; n == 4 {
+			cancel()
+		}
+	})
 }

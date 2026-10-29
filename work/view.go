@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -77,6 +78,10 @@ func (a *application) toolbar(c *ui.Context, t *ui.Theme, k palette) {
 			}
 		})
 		divider(c, k)
+		if in, _ := market.InstrumentOf(a.symbol); in.Future {
+			a.sessionButtons(c, t, k)
+			divider(c, k)
+		}
 		a.indicatorsButton(c, t, k)
 		ui.Box(c).Grow(1).FillHeight().DragWindow()
 		a.updateBadge(c, t, k)
@@ -139,6 +144,53 @@ func (a *application) intervalButton(c *ui.Context, t *ui.Theme, k palette, iv i
 	if b.Clicked() && !chosen {
 		a.open(a.symbol, iv.key)
 	}
+}
+
+// sessionButtons choose a future's trading hours, as TradingView's ETH and
+// RTH do: the whole electronic session, or 9:30 to 16:15 New York time.
+// Days and weeks are the same either way.
+func (a *application) sessionButtons(c *ui.Context, t *ui.Theme, k palette) {
+	daily := a.intervalMs() >= 86_400_000
+	ny, _ := time.LoadLocation("America/New_York")
+	open := time.Now().In(ny)
+	open = time.Date(open.Year(), open.Month(), open.Day(), 9, 30, 0, 0, ny)
+	local := open.In(time.Local).Format("15:04") + "–" + open.Add(6*time.Hour+45*time.Minute).In(time.Local).Format("15:04")
+	ui.Row(c).Shrink(0).Gap(2).Padding(0, 10).AlignItems(ui.Center).Children(func() {
+		for _, o := range []struct {
+			label, tip string
+			rth        bool
+		}{
+			{"ETH", "全时段：CME 电子盘整个交易时段，纽约时间 18:00 到第二天 17:00", false},
+			{"RTH", "常规时段：纽约时间 9:30–16:15（你这里 " + local + "），和 TradingView 的 RTH 一样", true},
+		} {
+			chosen := a.set.FuturesRTH == o.rth
+			b := ui.ButtonBase(c.Key("session-" + o.label)).Height(28).PaddingX(8).Center().Radius(4).Label(o.label)
+			if daily {
+				b.Disabled(true).Tooltip("日线和周线不分时段，两种都一样")
+			} else {
+				b.Cursor(ui.CursorPointer).Tooltip(o.tip)
+			}
+			col := t.TextMuted
+			switch {
+			case chosen && !daily:
+				b.Background(k.chosen)
+				col = k.accent
+			case b.Hovered() && !daily:
+				b.Background(k.hover)
+			}
+			if daily {
+				col = col.Alpha(0.5)
+			}
+			b.Children(func() {
+				ui.Text(c, o.label).FontSize(12).FontWeight(600).TextColor(col).SingleLine().Width(28).TextAlign(ui.Center)
+			})
+			if b.Clicked() && !chosen && !daily {
+				a.set.FuturesRTH = o.rth
+				a.save()
+				a.open(a.symbol, a.interval)
+			}
+		}
+	})
 }
 
 func (a *application) status(c *ui.Context, t *ui.Theme, k palette) {

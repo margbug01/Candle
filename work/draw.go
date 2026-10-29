@@ -545,7 +545,7 @@ func (a *application) legendSpans(k palette, i int) (title, spans []ui.Span) {
 		title = []ui.Span{
 			{Text: base, Size: 14, Weight: 600, Color: k.text},
 			{Text: a.after(a.symbol), Size: 12, Color: k.muted},
-			{Text: "  ·  " + iv.label + "  ·  " + venue(a.symbol), Size: 12, Color: k.muted}}
+			{Text: "  ·  " + iv.label + "  ·  " + venue(a.symbol) + map[bool]string{true: " · RTH"}[a.rth()], Size: 12, Color: k.muted}}
 		if !market.IsYahoo(a.symbol) { // a pair reads as one name: BTC/USDT
 			title[1].Size, title[1].Weight, title[1].Color = 14, 600, k.text
 		}

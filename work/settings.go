@@ -18,6 +18,9 @@ type settings struct {
 	Magnet     bool
 	Indicators []indicator // for every market
 	AutoUpdate bool        // check for a new version now and then
+	// FuturesRTH shows futures' intraday bars in the regular trading hours
+	// only (RTH), not the whole electronic session (ETH).
+	FuturesRTH bool `json:",omitempty"`
 }
 
 func defaultSettings() settings {
