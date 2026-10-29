@@ -1,0 +1,8 @@
+//@version=6
+indicator("趋向指标", "DMI")
+lensig = input.int(14, "ADX 平滑", minval = 1, maxval = 50)
+len = input.int(14, "DI 周期", minval = 1)
+[diplus, diminus, adx] = ta.dmi(len, lensig)
+plot(adx, "ADX", color = #F50057)
+plot(diplus, "+DI", color = #2962FF)
+plot(diminus, "-DI", color = #FF6D00)

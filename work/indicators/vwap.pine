@@ -1,0 +1,10 @@
+//@version=6
+indicator("成交量加权平均价", "VWAP", overlay = true)
+src = input.source(hlc3, "源")
+showBands = input.bool(false, "显示标准差带")
+mult = input.float(1.0, "标准差倍数", minval = 0, step = 0.5)
+[vwap, upper, lower] = ta.vwap(src, timeframe.change("D"), mult)
+plot(vwap, "VWAP", color = #2962FF)
+u = plot(showBands ? upper : na, "上轨", color = #4CAF50)
+l = plot(showBands ? lower : na, "下轨", color = #4CAF50)
+fill(u, l, color = color.new(color.green, 95), title = "带内背景")

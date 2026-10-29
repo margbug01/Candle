@@ -1,0 +1,6 @@
+//@version=6
+indicator("赫尔移动平均线", "HMA", overlay = true)
+length = input.int(9, "周期", minval = 1)
+src = input.source(close, "源")
+hullma = ta.wma(2 * ta.wma(src, math.floor(length / 2)) - ta.wma(src, length), math.floor(math.sqrt(length)))
+plot(hullma, "HMA", color = #2962FF)

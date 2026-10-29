@@ -1,0 +1,20 @@
+//@version=6
+indicator("肯特纳通道", "KC", overlay = true)
+length = input.int(20, "周期", minval = 1)
+mult = input.float(2.0, "倍数")
+src = input.source(close, "源")
+exp = input.bool(true, "用指数均线")
+bandsStyle = input.string("Average True Range", "通道宽度", options = ["Average True Range", "True Range", "Range"])
+atrlength = input.int(10, "ATR 周期")
+esma(source, length) =>
+    s = ta.sma(source, length)
+    e = ta.ema(source, length)
+    exp ? e : s
+ma = esma(src, length)
+rangema = bandsStyle == "True Range" ? ta.tr(true) : bandsStyle == "Average True Range" ? ta.atr(atrlength) : ta.rma(high - low, length)
+upper = ma + rangema * mult
+lower = ma - rangema * mult
+u = plot(upper, "上轨", color = #2962FF)
+plot(ma, "中轨", color = #2962FF)
+l = plot(lower, "下轨", color = #2962FF)
+fill(u, l, color = color.rgb(33, 150, 243, 95), title = "背景")

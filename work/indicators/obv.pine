@@ -1,0 +1,5 @@
+//@version=6
+indicator("能量潮", "OBV", format = format.volume)
+src = input.source(close, "源")
+obv = ta.cum(math.sign(ta.change(src)) * volume)
+plot(obv, "OBV", color = #2962FF)

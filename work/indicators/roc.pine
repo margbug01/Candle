@@ -1,0 +1,7 @@
+//@version=6
+indicator("变动率", "ROC", precision = 2)
+length = input.int(9, "周期", minval = 1)
+source = input.source(close, "源")
+roc = 100 * (source - source[length]) / source[length]
+plot(roc, "ROC", color = #2962FF)
+hline(0, "零轴", color = #787B86)

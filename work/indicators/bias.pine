@@ -1,0 +1,12 @@
+//@version=6
+indicator("乖离率", "BIAS", precision = 2)
+n1 = input.int(6, "周期 1", minval = 1)
+n2 = input.int(12, "周期 2", minval = 1)
+n3 = input.int(24, "周期 3", minval = 1)
+bias(n) =>
+    ma = ta.sma(close, n)
+    (close - ma) / ma * 100
+plot(bias(n1), "BIAS1", color = #f0b90b)
+plot(bias(n2), "BIAS2", color = #e040fb)
+plot(bias(n3), "BIAS3", color = #2962FF)
+hline(0, "零轴", color = #787B86)

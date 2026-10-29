@@ -1,0 +1,6 @@
+//@version=6
+indicator("三重指数平滑", "TRIX", precision = 4)
+length = input.int(18, "周期", minval = 1)
+out = 10000 * ta.change(ta.ema(ta.ema(ta.ema(math.log(close), length), length), length))
+plot(out, "TRIX", color = #F44336)
+hline(0, "零轴", color = #787B86)

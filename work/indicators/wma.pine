@@ -1,0 +1,6 @@
+//@version=6
+indicator("加权移动平均线", "WMA", overlay = true)
+len = input.int(9, "周期", minval = 1)
+src = input.source(close, "源")
+offset = input.int(0, "偏移", minval = -500, maxval = 500)
+plot(ta.wma(src, len), "WMA", color = #2962FF, offset = offset)

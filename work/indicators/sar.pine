@@ -1,0 +1,6 @@
+//@version=6
+indicator("抛物线转向", "SAR", overlay = true)
+start = input.float(0.02, "起始值", step = 0.001)
+increment = input.float(0.02, "步长", step = 0.001)
+maximum = input.float(0.2, "最大值", step = 0.01)
+plot(ta.sar(start, increment, maximum), "SAR", style = plot.style_cross, color = #2962FF)

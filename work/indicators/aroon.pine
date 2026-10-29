@@ -1,0 +1,7 @@
+//@version=6
+indicator("阿隆指标", "Aroon", precision = 2)
+length = input.int(14, "周期", minval = 1)
+upper = 100 * (ta.highestbars(high, length + 1) + length) / length
+lower = 100 * (ta.lowestbars(low, length + 1) + length) / length
+plot(upper, "上升", color = #FB8C00)
+plot(lower, "下降", color = #2962FF)

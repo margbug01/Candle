@@ -1,0 +1,11 @@
+//@version=6
+indicator("真实波动幅度均值", "ATR")
+length = input.int(14, "周期", minval = 1)
+smoothing = input.string("RMA", "平滑方式", options = ["RMA", "SMA", "EMA", "WMA"])
+ma_function(source, length) =>
+    switch smoothing
+        "RMA" => ta.rma(source, length)
+        "SMA" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        => ta.wma(source, length)
+plot(ma_function(ta.tr(true), length), "ATR", color = #B71C1C)
