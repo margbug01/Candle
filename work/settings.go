@@ -13,9 +13,13 @@ type settings struct {
 	// Layout is which of TradingView's layouts shows the charts, "" for one
 	// chart. Charts are the layout's charts, in TradingView's order, those a
 	// layout with fewer hides too; Active is the one the toolbar acts on.
-	Layout     string `json:",omitempty"`
-	Charts     []chartSettings
-	Active     int
+	Layout string `json:",omitempty"`
+	Charts []chartSettings
+	Active int
+	Sync   syncSettings
+	// Splits are the shares of the parts of each layout as dragged, by
+	// layout and its splits' node: nil for alike.
+	Splits     map[string][][]float64 `json:",omitempty"`
 	Watch      []string
 	Chart      style
 	Drawings   map[string][]drawing // by market
@@ -49,6 +53,7 @@ type savedSettings struct {
 func defaultSettings() settings {
 	return settings{
 		Charts:     []chartSettings{{Symbol: "BTCUSDT", Interval: "1h"}},
+		Sync:       syncSettings{Crosshair: true},
 		Watch:      []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "SUIUSDT", "ADAUSDT"},
 		Chart:      defaultStyle(),
 		Magnet:     true,

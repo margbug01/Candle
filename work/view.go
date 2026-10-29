@@ -84,6 +84,7 @@ func (a *application) toolbar(c *ui.Context, t *ui.Theme, k palette) {
 			divider(c, k)
 		}
 		a.indicatorsButton(c, t, k)
+		a.layoutButton(c, t, k)
 		ui.Box(c).Grow(1).FillHeight().DragWindow()
 		a.updateBadge(c, t, k)
 		a.gearButton(c, t, k)
@@ -145,7 +146,7 @@ func (a *application) intervalButton(c *ui.Context, t *ui.Theme, k palette, iv i
 		ui.Text(c, iv.label).FontSize(13).FontWeight(500).TextColor(col).SingleLine().Width(float32(math.Ceil(float64(w))) + 1)
 	})
 	if b.Clicked() && !chosen {
-		a.open(a.symbol, iv.key)
+		a.openSynced(a.symbol, iv.key)
 	}
 }
 
@@ -190,7 +191,7 @@ func (a *application) sessionButtons(c *ui.Context, t *ui.Theme, k palette) {
 			if b.Clicked() && !chosen && !daily {
 				a.set.FuturesRTH = o.rth
 				a.save()
-				a.open(a.symbol, a.interval)
+				a.reopenFutures()
 			}
 		}
 	})
@@ -219,13 +220,14 @@ func (a *application) status(c *ui.Context, t *ui.Theme, k palette) {
 
 // chartArea is the charts as the layout has them.
 func (a *application) chartArea(c *ui.Context, t *ui.Theme, k palette) {
-	ui.Box(c.Key("chart-area")).Grow(1).FillHeight().MinWidth(0).Children(func() { a.charts(c, t, k) })
+	area := ui.Box(c.Key("chart-area")).Grow(1).FillHeight().MinWidth(0)
+	area.Children(func() { a.charts(c, t, k, area) })
 }
 
 // cellBox is a chart of the layout, in its box: the chart drawn by
 // drawChart, with the messages and the button to the newest bar on top of it.
 // It reports whether the pointer went down outside it since the last frame.
-func (a *application) cellBox(c *ui.Context, t *ui.Theme, k palette, i int, box func() ui.Element) (outside bool) {
+func (a *application) cellBox(c *ui.Context, t *ui.Theme, k palette, i int, box ui.Element) (outside bool) {
 	a.on(a.cells[i], func() {
 		if st := &a.set.Chart; st.Scale != a.scaleMode { // the prices refit on another scale
 			a.scaleMode, a.scale = st.Scale, prices{}
@@ -236,8 +238,11 @@ func (a *application) cellBox(c *ui.Context, t *ui.Theme, k palette, i int, box 
 			}
 			a.homeShown = h
 		}
-		b := box().Children(func() { a.chart(c, t, k) })
-		outside = b.PressedOutside()
+		box.Clip().Children(func() {
+			a.chart(c, t, k)
+			a.cellFrame(c, k, i, box.Hovered())
+		})
+		outside = box.PressedOutside()
 		a.loadOlder()
 	})
 	return outside
@@ -249,6 +254,7 @@ func (a *application) cellBox(c *ui.Context, t *ui.Theme, k palette, i int, box 
 func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 	box := ui.Box(c.Key("chart")).FillWidth().FillHeight()
 	hx, hy, over := box.PointerPosition()
+	a.bounds = box.Bounds()
 	cursor := ui.CursorCrosshair
 	switch {
 	case a.drag == dragSep || a.drag == dragNone && over && len(a.bars) > 0 && a.sepAt(hy) >= 0:
@@ -270,7 +276,16 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 	}
 	cl := a.cell // the handlers run once the frame is built
 	box.Cursor(cursor).
-		HandleInput(func(ev ui.InputEvent) bool { return a.onCell(cl, func() bool { return a.chartInput(ev) }) }).
+		HandleInput(func(ev ui.InputEvent) bool {
+			return a.onCell(cl, func() bool {
+				was := a.view
+				took := a.chartInput(ev)
+				if a.view != was {
+					a.syncTime()
+				}
+				return took
+			})
+		}).
 		ContextMenu(func(m *ui.Menu) { a.on(cl, func() { a.chartMenu(m) }) }).
 		Draw(func(p *ui.Painter, r ui.Rect) { a.on(cl, func() { a.drawChart(p, r, k, hx, hy, over) }) })
 	switch {
@@ -291,7 +306,7 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 		a.latestButton(c, k)
 	}
 	if len(a.bars) > 0 {
-		a.legends(c, t, k, a.hoverBar(hx, hy, over))
+		a.legends(c, t, k, a.legendBar(hx, hy, over))
 		a.scaleButtons(c, k, over && hx > a.plotW)
 		a.drawingBar(c, t, k)
 	}
@@ -317,6 +332,7 @@ func (a *application) latestButton(c *ui.Context, k palette) {
 	})
 	if b.Clicked() {
 		a.view.offset = a.home()
+		a.syncTime()
 	}
 }
 
@@ -370,6 +386,15 @@ func (a *application) chartMenu(m *ui.Menu) {
 	if m.Item("重置图表").Chosen() {
 		a.resetView()
 	}
+	if a.shownCells() > 1 {
+		label := "最大化这个图表"
+		if a.maxed >= 0 {
+			label = "还原布局"
+		}
+		if m.Item(label).Chosen() {
+			a.maximize(slices.Index(a.cells, a.cell))
+		}
+	}
 	m.Separator()
 	if m.Item("自动缩放价格").Checked(!a.scale.manual).Chosen() {
 		if a.scale.manual {
@@ -410,6 +435,7 @@ func (a *application) resetView() {
 	for _, pv := range a.paneViews {
 		pv.scale = prices{}
 	}
+	a.syncTime()
 }
 
 // chartInput pans on a drag and zooms on the wheel, around the pointer; a

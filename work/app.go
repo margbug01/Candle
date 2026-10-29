@@ -53,10 +53,14 @@ type application struct {
 	// TradingView keeps them, for a layout with more), and the one the
 	// toolbar acts on. cell is the one being built, drawn or handled.
 	*cell
-	cells  []*cell
-	active int
-	feeds  map[string]*sharedFeed // by feedKey
-	clock  int64                  // Binance's clock minus this machine's, ms
+	cells      []*cell
+	active     int
+	maxed      int                    // the chart maximized, -1 for none
+	feeds      map[string]*sharedFeed // by feedKey
+	cross      crossPoint             // where the crosshair is, this frame
+	splitHeld  string                 // the line between charts being dragged
+	layoutMenu bool                   // the layout menu is open
+	clock      int64                  // Binance's clock minus this machine's, ms
 
 	// The watchlist and the search.
 	infos      map[string]market.Symbol
@@ -135,7 +139,7 @@ func newApplication(set settings, file string, bin market.Binance, post func(fun
 	for _, cs := range set.Charts {
 		a.cells = append(a.cells, newCell(cs, set.Chart))
 	}
-	a.active = set.Active
+	a.active, a.maxed = set.Active, -1
 	a.cell = a.activeCell()
 	return a
 }
@@ -864,7 +868,7 @@ func (a *application) pick(sym string) {
 		a.watchQuotes()
 	}
 	if sym != a.symbol {
-		a.open(sym, a.interval)
+		a.openSynced(sym, a.interval)
 	}
 }
 

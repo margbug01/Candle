@@ -24,6 +24,7 @@ type cell struct {
 	view             view
 	plotW, plotH     float32 // the candles' pane
 	boxH             float32 // the whole chart, the time axis too
+	bounds           ui.Rect // the chart in the window, as the last frame had it
 	gen              int
 	ctx              context.Context
 	stop             context.CancelFunc

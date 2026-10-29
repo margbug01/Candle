@@ -79,7 +79,7 @@ func (a *application) indicatorsButton(c *ui.Context, t *ui.Theme, k palette) {
 // its row.
 func (a *application) legends(c *ui.Context, t *ui.Theme, k palette, i int) {
 	title, values := a.legendSpans(k, i)
-	ui.Column(c.Key("legend")).Absolute().Top(8).Left(10).Gap(2).PassThrough().Children(func() {
+	a.fitLegend(ui.Column(c.Key("legend")).Absolute().Top(8).Left(10).Gap(2).PassThrough()).Children(func() {
 		if len(title) > 0 {
 			ui.Row(c).Gap(6).Margin(0, 0, 2, 4).AlignItems(ui.Center).PassThrough().Children(func() {
 				if a.set.Chart.Logo {
@@ -101,7 +101,7 @@ func (a *application) legends(c *ui.Context, t *ui.Theme, k palette, i int) {
 	for _, pn := range panes {
 		ind := &a.indicators[pn.idx]
 		kind, _ := kindOf(ind.Kind)
-		ui.Column(c.Key(fmt.Sprintf("legend-%d", ind.ID))).Absolute().Top(pn.y + 4).Left(10).PassThrough().Children(func() {
+		a.fitLegend(ui.Column(c.Key(fmt.Sprintf("legend-%d", ind.ID))).Absolute().Top(pn.y + 4).Left(10).PassThrough()).Children(func() {
 			a.legendRow(c, t, k, ind, kind, i)
 		})
 	}
