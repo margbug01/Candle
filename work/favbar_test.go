@@ -73,6 +73,7 @@ func TestDrawFromTheBar(t *testing.T) {
 // edges, and stays there; the switch in the column hides it.
 func TestMoveTheBar(t *testing.T) {
 	a := testApp()
+	a.file = filepath.Join(t.TempDir(), "settings.json")
 	tt := newTester(a, true)
 	before := a.set.FavX
 	g, ok := tt.Find("拖动常用工具栏")
@@ -97,6 +98,9 @@ func TestMoveTheBar(t *testing.T) {
 	}
 	if a.set.FavX >= before || a.set.FavY <= 0.01 {
 		t.Fatalf("kept at %v, %v", a.set.FavX, a.set.FavY)
+	}
+	if s := loadSettings(a.file); s.FavX != a.set.FavX || s.FavY != a.set.FavY {
+		t.Fatalf("saved at %v, %v; it is at %v, %v", s.FavX, s.FavY, a.set.FavX, a.set.FavY)
 	}
 	// Far past the chart's corner: it stops at it.
 	x0, y0 = center(g2)

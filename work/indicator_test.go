@@ -219,7 +219,7 @@ func TestIndicatorsAreQuick(t *testing.T) {
 	}
 	tick := time.Since(t0) / ticks
 	t.Logf("3000 bars, %d indicators: all %v, a tick %v", len(list), full, tick)
-	if full > 100*time.Millisecond || tick > 2*time.Millisecond {
+	if full > slowdown*100*time.Millisecond || tick > slowdown*2*time.Millisecond {
 		t.Fatalf("all %v, a tick %v", full, tick)
 	}
 }
