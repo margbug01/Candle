@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -315,4 +316,62 @@ func TestSpreadTags(t *testing.T) {
 	if got[0].y != 360 || got[1].y != 380 || got[2].y != 400 {
 		t.Fatalf("at the bottom, spread to %+v", got)
 	}
+}
+
+// The indicators' labels make way for the labels that stay put: into the
+// room on the side their value is, apart from one another there.
+func TestPlaceTags(t *testing.T) {
+	last := fixedLabel{top: 190, bottom: 224, at: 200} // with the countdown under the price
+	ys := func(tags []axisTag) (out []float32) {
+		for _, tg := range tags {
+			out = append(out, tg.y)
+		}
+		return out
+	}
+	for _, c := range []struct {
+		name  string
+		tags  []float32
+		fixed []fixedLabel
+		want  []float32
+	}{
+		{"clear of it", []float32{100, 300}, []fixedLabel{last}, []float32{100, 300}},
+		{"under the price", []float32{210}, []fixedLabel{last}, []float32{234}},
+		{"over the price", []float32{195}, []fixedLabel{last}, []float32{180}},
+		{"two under", []float32{205, 201}, []fixedLabel{last}, []float32{234, 254}},
+		{"one each side", []float32{198, 202}, []fixedLabel{last}, []float32{180, 234}},
+		{"touching from above", []float32{175}, []fixedLabel{last}, []float32{175}},
+		// No room below: above it instead, pushing the one there up.
+		{"at the bottom", []float32{365, 395}, []fixedLabel{{top: 380, bottom: 400, at: 390}}, []float32{350, 370}},
+		// Between the last price and the highest, too little room for one: past them.
+		{"squeezed", []float32{232}, []fixedLabel{last, {top: 236, bottom: 256, at: 246}}, []float32{180}},
+		{"none fixed", []float32{105, 100}, nil, []float32{100, 120}},
+	} {
+		var tags []axisTag
+		for _, y := range c.tags {
+			tags = append(tags, axisTag{y: y})
+		}
+		got := ys(placeTags(tags, c.fixed, 10, 390))
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: placed at %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// On the chart: an MA of one bar is the last price, and its label shows
+// whole under the last price's label, not under it.
+func TestIndicatorLabelClearsTheLastPrice(t *testing.T) {
+	a := testApp()
+	k, _ := kindOf("ma")
+	a.addIndicator(k)
+	ind := &a.set.Indicators[len(a.set.Indicators)-1]
+	ind.Params = []float64{1}
+	ind.Colors = []hexColor{hexColor(ui.Hex("#ff00ff"))}
+	tt := newTester(a, true)
+	axisX := int(chartLeft(a) + a.plotW)
+	img := tt.Image()
+	n := count(img, image.Rect(axisX+1, titleBarHeight, axisX+axisW, titleBarHeight+int(a.plotH)), color.RGBA{255, 0, 255, 255})
+	if want := 20 * (axisW - 2) * 6 / 10; n < want { // the label, less its text
+		t.Fatalf("%d of the MA label's pixels show, want %d", n, want)
+	}
+	shot(t, tt, "labels-clear")
 }

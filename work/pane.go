@@ -346,8 +346,9 @@ type axisTag struct {
 	c    ui.Color
 }
 
-// overlayTags are the newest values of the overlays, for the candles' axis.
-func (a *application) overlayTags(y func(float64) float32, text func(float64) string, top, bottom float32) []axisTag {
+// overlayTags are the newest values of the overlays, for the candles' axis,
+// out of the way of the labels that stay put there.
+func (a *application) overlayTags(y func(float64) float32, text func(float64) string, top, bottom float32, fixed []fixedLabel) []axisTag {
 	var tags []axisTag
 	if !a.set.Chart.IndValues {
 		return nil
@@ -361,8 +362,75 @@ func (a *application) overlayTags(y func(float64) float32, text func(float64) st
 			}
 		}
 	})
-	return spreadTags(tags, top+10, bottom-10)
+	return placeTags(tags, fixed, top+10, bottom-10)
 }
+
+// A fixedLabel is a label on the price axis that stays where its price is,
+// the last price's or the highest's or lowest's in sight: it covers
+// top..bottom, its price at at.
+type fixedLabel struct{ top, bottom, at float32 }
+
+// placeTags spreads labels as spreadTags does, around the fixed labels: each
+// goes into the room above or below them, on the side its value is, and
+// moves apart from the others there. A label's middle stays between top and
+// bottom.
+func placeTags(tags []axisTag, fixed []fixedLabel, top, bottom float32) []axisTag {
+	const half = 10 // half a label's height
+	type room struct {
+		top, bottom float32
+		tags        []axisTag
+	}
+	fixed = slices.Clone(fixed)
+	slices.SortFunc(fixed, func(a, b fixedLabel) int { return cmp.Compare(a.top, b.top) })
+	var rooms []room
+	at := top
+	for _, f := range fixed {
+		if f.top-half >= at {
+			rooms = append(rooms, room{top: at, bottom: f.top - half})
+		}
+		at = max(at, f.bottom+half)
+	}
+	if at <= bottom {
+		rooms = append(rooms, room{top: at, bottom: bottom})
+	}
+	if len(rooms) == 0 {
+		return spreadTags(tags, top, bottom)
+	}
+	for _, t := range tags {
+		above, below := -1, -1 // the nearest rooms
+		in := -1
+		for i, r := range rooms {
+			switch {
+			case t.y >= r.top && t.y <= r.bottom:
+				in = i
+			case r.bottom < t.y:
+				above = i
+			case r.top > t.y && below < 0:
+				below = i
+			}
+		}
+		if in < 0 { // on a fixed label: to the side its value is on, else the other
+			var on fixedLabel
+			for _, f := range fixed {
+				if t.y >= f.top-half && t.y <= f.bottom+half && (on == fixedLabel{} || abs32(t.y-f.at) < abs32(t.y-on.at)) {
+					on = f
+				}
+			}
+			in = above
+			if t.y >= on.at && below >= 0 || in < 0 {
+				in = below
+			}
+		}
+		rooms[in].tags = append(rooms[in].tags, t)
+	}
+	var out []axisTag
+	for _, r := range rooms {
+		out = append(out, spreadTags(r.tags, r.top, r.bottom)...)
+	}
+	return out
+}
+
+func abs32(v float32) float32 { return max(v, -v) }
 
 // spreadTags moves labels apart that would cover one another, keeping their
 // order and them between top and bottom, the middles of the first and last

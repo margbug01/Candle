@@ -274,8 +274,10 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 	if st.Type == "line" || st.Type == "area" {
 		lastCol = st.Line.or(k.accent)
 	}
+	var fixed []fixedLabel // what the indicators' labels make way for
 	if showValue {
 		taken = append(taken, [2]float32{ly - 10, ly - 10 + lh})
+		fixed = append(fixed, fixedLabel{ly - 10, ly - 10 + lh, ly})
 	}
 	hiI, loI := from, from
 	for i := from; i <= to; i++ {
@@ -292,10 +294,11 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 			if yy := mid(y(e)); yy >= plot.Y && yy <= plot.Y+plot.H {
 				extremes = append(extremes, e)
 				taken = append(taken, [2]float32{yy - 10, yy + 10})
+				fixed = append(fixed, fixedLabel{yy - 10, yy + 10, yy})
 			}
 		}
 	}
-	tags := a.overlayTags(func(v float64) float32 { return mid(y(v)) }, priceText, plot.Y, plot.Y+plot.H)
+	tags := a.overlayTags(func(v float64) float32 { return mid(y(v)) }, priceText, plot.Y, plot.Y+plot.H, fixed)
 	taken = append(taken, tagSpans(tags)...)
 
 	type mark struct {
