@@ -352,13 +352,18 @@ func (a *application) toolsColumn(c *ui.Context, t *ui.Theme, k palette) {
 			for _, group := range [][]int{{0, 1, 2, 3, 4, 5}, {6}, {7, 8, 10, 11}, {9}} {
 				toolSeparator(c, k)
 				for _, i := range group {
-					tl := drawTools[i]
-					if toolButton(c, t, k, "tool-"+tl.kind, tl.label, tl.icon, a.tool == tl.kind).Clicked() {
-						a.pickTool(tl.kind)
-					}
+					a.toolWithStar(c, t, k, drawTools[i])
 				}
 			}
 			toolSeparator(c, k)
+			favTip := "常用工具栏：显示（工具上点 ☆ 加入）"
+			if a.set.FavBar {
+				favTip = "常用工具栏：隐藏"
+			}
+			if toolButton(c, t, k, "tool-favbar", "常用工具栏", starIcon, a.set.FavBar).Tooltip(favTip).Clicked() {
+				a.set.FavBar = !a.set.FavBar
+				a.save()
+			}
 			magnetTip := "磁吸：关"
 			if a.set.Magnet {
 				magnetTip = "磁吸：开（靠近时吸到开高低收）"
@@ -535,7 +540,7 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 // input with the focus takes all of those keys first, so typing edits text.
 func (a *application) drawingShortcuts(c *ui.Context) {
 	// The search box edits with these keys, as a field does.
-	if a.dialog || a.indList || a.indDialog || a.qb.focused {
+	if a.dialog || a.indList || a.indDialog || a.ed != nil || a.qb.focused {
 		return
 	}
 	if a.creating != nil || a.tool != "" || a.sel != 0 {

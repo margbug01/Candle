@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"candle/market"
+	"candle/pine"
 )
 
 // Technical indicators, after TradingView's: MA, EMA and BOLL over the
@@ -36,14 +37,36 @@ type plotDef struct {
 	color string // the default; a bar plot's above zero, or rising
 	down  string // a bar plot's below zero, or falling
 	style int
+
+	// A script's plots: their width, whether they are worked out only
+	// (display.none), and whether their color changes from bar to bar.
+	width           float64
+	hidden, dynamic bool
 }
 
 func line(name, color string) plotDef { return plotDef{name: name, color: color, style: plotLine} }
 
+func pnum(name string, def, lo, hi, step float64) paramDef {
+	return paramDef{name: name, def: def, lo: lo, hi: hi, step: step}
+}
+
 type paramDef struct {
 	name              string
 	def, lo, hi, step float64
+	kind              int      // paramNumber…
+	opts              []option // a choice's, keyed by place
+	tip               string
 }
+
+// What a parameter is.
+const (
+	paramNumber    = iota
+	paramBool      // 1 or 0
+	paramChoice    // the place of one of opts
+	paramColor     // a color packed as pine.Pack does
+	paramFixed     // a script's text input without choices: not set
+	paramNumChoice // a number, one of opts, keyed by its text
+)
 
 // indKind is a kind of indicator.
 type indKind struct {
@@ -60,7 +83,16 @@ type indKind struct {
 	decimals         int       // the values': -1 the prices', -2 volumes, else fixed
 	source, offset   bool      // what it is worked out from can be picked; it can be drawn shifted
 	calc             func(b []market.Bar, src func(int) float64, p []float64, out [][]float64, from int)
+
+	category string       // the section of the list of indicators it is in
+	script   *pine.Script // a Pine script's, which works it out in place of calc
+	custom   string       // a script of the user's: its file; else ""
+	broken   string       // why a script of the user's cannot run: it has an error, or is gone
+	rev      int64        // a script of the user's: its file's time and size when read
 }
+
+// The sections of the list of indicators, in order.
+var categories = []string{"自定义", "均线", "通道", "趋势", "震荡", "波动", "成交量"}
 
 // sources are what a kind can be worked out from, after TradingView's.
 var sources = []option{{"", "收盘价"}, {"open", "开盘价"}, {"high", "最高价"}, {"low", "最低价"},
@@ -86,43 +118,49 @@ func source(b []market.Bar, key string) func(int) float64 {
 }
 
 var indKinds = []indKind{
-	{key: "ma", short: "MA", name: "移动平均线", alias: "均线 SMA", decimals: -1, source: true, offset: true,
-		params:  []paramDef{{"周期", 5, 1, 1000, 1}},
+	{key: "ma", short: "MA", name: "移动平均线", alias: "均线 SMA", decimals: -1, source: true, offset: true, category: "均线",
+		params:  []paramDef{pnum("周期", 5, 1, 1000, 1)},
 		presets: []float64{5, 10, 20, 30, 60, 120},
 		plots:   []plotDef{line("MA", "#f0b90b")}, calc: calcMA},
-	{key: "ema", short: "EMA", name: "指数移动平均线", alias: "均线", decimals: -1, source: true, offset: true,
-		params:  []paramDef{{"周期", 12, 1, 1000, 1}},
+	{key: "ema", short: "EMA", name: "指数移动平均线", alias: "均线", decimals: -1, source: true, offset: true, category: "均线",
+		params:  []paramDef{pnum("周期", 12, 1, 1000, 1)},
 		presets: []float64{12, 26, 50, 100, 200},
 		plots:   []plotDef{line("EMA", "#f0b90b")}, calc: calcEMA},
-	{key: "boll", short: "BOLL", name: "布林带", alias: "BB Bollinger", decimals: -1, source: true, offset: true,
-		params: []paramDef{{"周期", 20, 1, 500, 1}, {"倍数", 2, 0.1, 10, 0.1}},
+	{key: "boll", short: "BOLL", name: "布林带", alias: "BB Bollinger", decimals: -1, source: true, offset: true, category: "通道",
+		params: []paramDef{pnum("周期", 20, 1, 500, 1), pnum("倍数", 2, 0.1, 10, 0.1)},
 		plots:  []plotDef{line("中轨", "#ff6d00"), line("上轨", "#2962ff"), line("下轨", "#2962ff")},
 		fill:   []int{1, 2}, calc: calcBOLL},
-	{key: "macd", short: "MACD", name: "指数平滑异同移动平均线", pane: true, decimals: -1, source: true,
-		params: []paramDef{{"快线", 12, 1, 500, 1}, {"慢线", 26, 1, 500, 1}, {"信号线", 9, 1, 500, 1}},
-		plots:  []plotDef{line("DIF", "#2962ff"), line("DEA", "#ff6d00"), {"柱", barUp, barDown, plotHist}},
+	{key: "macd", short: "MACD", name: "指数平滑异同移动平均线", pane: true, decimals: -1, source: true, category: "震荡",
+		params: []paramDef{pnum("快线", 12, 1, 500, 1), pnum("慢线", 26, 1, 500, 1), pnum("信号线", 9, 1, 500, 1)},
+		plots:  []plotDef{line("DIF", "#2962ff"), line("DEA", "#ff6d00"), {name: "柱", color: barUp, down: barDown, style: plotHist}},
 		state:  2, levels: []float64{0}, calc: calcMACD},
-	{key: "rsi", short: "RSI", name: "相对强弱指数", pane: true, decimals: 2, source: true,
-		params: []paramDef{{"周期", 14, 1, 500, 1}},
+	{key: "rsi", short: "RSI", name: "相对强弱指数", pane: true, decimals: 2, source: true, category: "震荡",
+		params: []paramDef{pnum("周期", 14, 1, 500, 1)},
 		plots:  []plotDef{line("RSI", "#7e57c2")},
 		state:  2, levels: []float64{70, 30}, band: true, calc: calcRSI},
-	{key: "kdj", short: "KDJ", name: "随机指标", alias: "Stochastic", pane: true, decimals: 2,
-		params: []paramDef{{"周期", 9, 1, 500, 1}, {"K 平滑", 3, 1, 100, 1}, {"D 平滑", 3, 1, 100, 1}},
+	{key: "kdj", short: "KDJ", name: "随机指标", alias: "Stochastic", pane: true, decimals: 2, category: "震荡",
+		params: []paramDef{pnum("周期", 9, 1, 500, 1), pnum("K 平滑", 3, 1, 100, 1), pnum("D 平滑", 3, 1, 100, 1)},
 		plots:  []plotDef{line("K", "#2962ff"), line("D", "#ff9800"), line("J", "#e040fb")},
 		levels: []float64{80, 20}, calc: calcKDJ},
-	{key: "vol", short: "VOL", name: "成交量", alias: "Volume", pane: true, decimals: -2,
-		params: []paramDef{{"均线周期", 20, 0, 500, 1}},
-		plots:  []plotDef{{"成交量", barUp, barDown, plotVolume}, line("均线", "#2962ff")}, calc: calcVOL},
+	{key: "vol", short: "VOL", name: "成交量", alias: "Volume", pane: true, decimals: -2, category: "成交量",
+		params: []paramDef{pnum("均线周期", 20, 0, 500, 1)},
+		plots:  []plotDef{{name: "成交量", color: barUp, down: barDown, style: plotVolume}, line("均线", "#2962ff")}, calc: calcVOL},
 }
 
 // lineColors take turns among the instances of a one-line kind.
 var lineColors = []string{"#f0b90b", "#e040fb", "#2962ff", "#00bcd4", "#ff7043", "#66bb6a"}
 
+// kindOf is the kind keyed key: built in, or a script of the user's. A
+// script of the user's that is gone is a kind that draws nothing, so that
+// the indicator keeps its settings till it comes back.
 func kindOf(key string) (*indKind, bool) {
 	for i := range indKinds {
 		if indKinds[i].key == key {
 			return &indKinds[i], true
 		}
+	}
+	if k := customKind(key); k != nil {
+		return k, true
 	}
 	return nil, false
 }
@@ -141,6 +179,32 @@ type indicator struct {
 	Offset float64 `json:",omitempty"` // bars the plots are drawn to the right
 }
 
+// fit is v as the parameter can take it.
+func (pd paramDef) fit(v float64) float64 {
+	switch pd.kind {
+	case paramBool:
+		if v != 0 {
+			return 1
+		}
+		return 0
+	case paramChoice:
+		return min(max(math.Round(v), 0), float64(len(pd.opts)-1))
+	case paramColor:
+		if _, _, _, _, ok := pine.Unpack(v); ok {
+			return v
+		}
+		return pd.def
+	case paramFixed:
+		return pd.def
+	case paramNumChoice:
+		if slices.ContainsFunc(pd.opts, func(o option) bool { return o.key == strconv.FormatFloat(v, 'f', -1, 64) }) {
+			return v
+		}
+		return pd.def
+	}
+	return min(max(v, pd.lo), pd.hi)
+}
+
 const (
 	defaultPaneHeight = 0.2
 	maxLineWidth      = 4
@@ -154,11 +218,17 @@ func (ind *indicator) fix() bool {
 	if !ok {
 		return false
 	}
+	if k.broken != "" { // kept as it is till the script runs again
+		if ind.Height < 0.02 || ind.Height > 0.9 || math.IsNaN(ind.Height) {
+			ind.Height = defaultPaneHeight
+		}
+		return true
+	}
 	ps := make([]float64, len(k.params))
 	for j, pd := range k.params {
 		ps[j] = pd.def
 		if j < len(ind.Params) && !math.IsNaN(ind.Params[j]) {
-			ps[j] = min(max(ind.Params[j], pd.lo), pd.hi)
+			ps[j] = pd.fit(ind.Params[j])
 		}
 	}
 	ind.Params = ps
@@ -170,7 +240,7 @@ func (ind *indicator) fix() bool {
 		if j < len(ind.Downs) {
 			ds[j] = ind.Downs[j]
 		}
-		ws[j] = 1
+		ws[j] = min(max(math.Round(k.plots[j].width), 1), maxLineWidth)
 		if j < len(ind.Widths) && ind.Widths[j] >= 1 && ind.Widths[j] <= maxLineWidth {
 			ws[j] = math.Round(ind.Widths[j])
 		}
@@ -222,9 +292,19 @@ func cloneIndicator(ind indicator) indicator {
 // paramText is the parameters as the legend lists them, the source and the
 // offset when not the default.
 func (ind *indicator) paramText() string {
-	parts := make([]string, len(ind.Params))
+	k, _ := kindOf(ind.Kind)
+	parts := make([]string, 0, len(ind.Params))
 	for i, p := range ind.Params {
-		parts[i] = strconv.FormatFloat(p, 'f', -1, 64)
+		if k != nil && i < len(k.params) && k.broken == "" {
+			switch pd := k.params[i]; pd.kind {
+			case paramBool, paramColor, paramFixed:
+				continue // as TradingView's legend: the numbers and the choices
+			case paramChoice:
+				parts = append(parts, labelOf(pd.opts, strconv.Itoa(int(p))))
+				continue
+			}
+		}
+		parts = append(parts, strconv.FormatFloat(p, 'f', -1, 64))
 	}
 	if ind.Source != "" {
 		parts = append(parts, labelOf(sources, ind.Source))
@@ -270,6 +350,9 @@ func newIndicator(k *indKind, id int64, list []indicator) indicator {
 type series struct {
 	kind, src  string
 	params     []float64
+	script     *pine.Script // the script it was worked out by, for a script's kind
+	vm         *pine.Machine
+	env        string // what the script knew of the chart
 	gen, n     int
 	first      int64
 	prev, last market.Bar // the bars before and at the newest one it had
@@ -277,16 +360,28 @@ type series struct {
 	from       int // where the last update began, for the tests
 }
 
-func (s *series) update(k *indKind, params []float64, src string, bars []market.Bar, gen int) {
+func (s *series) update(k *indKind, params []float64, src string, bars []market.Bar, gen int, env pine.Env, envKey string) {
 	n := len(bars)
 	from := 0
 	if s.kind == k.key && s.src == src && slices.Equal(s.params, params) && s.gen == gen && s.n > 0 && n >= s.n &&
+		s.script == k.script && (k.script == nil || s.env == envKey) &&
 		bars[0].T == s.first && bars[s.n-1].T == s.last.T && (s.n < 2 || bars[s.n-2] == s.prev) {
 		if n == s.n && bars[n-1] == s.last {
 			return
 		}
 		from = s.n - 1
 	}
+	if k.script != nil || k.broken != "" {
+		s.out = nil
+		if k.script != nil {
+			s.vm = k.script.Run(s.vm, bars, params, from, env)
+			s.out = s.vm.Plots
+		}
+		s.remember(k, params, src, bars, gen, from)
+		s.script, s.env = k.script, envKey
+		return
+	}
+	s.script, s.vm = nil, nil
 	if len(s.out) != len(k.plots)+k.state {
 		s.out, from = make([][]float64, len(k.plots)+k.state), 0
 	}
@@ -300,6 +395,14 @@ func (s *series) update(k *indKind, params []float64, src string, bars []market.
 	}
 	if n > 0 {
 		k.calc(bars, source(bars, src), params, s.out, from)
+	}
+	s.remember(k, params, src, bars, gen, from)
+}
+
+// remember keeps what the values were worked out from.
+func (s *series) remember(k *indKind, params []float64, src string, bars []market.Bar, gen, from int) {
+	n := len(bars)
+	if n > 0 {
 		s.first, s.last = bars[0].T, bars[n-1]
 	}
 	if n > 1 {
@@ -474,4 +577,13 @@ func calcVOL(b []market.Bar, _ func(int) float64, p []float64, out [][]float64, 
 			out[1][i] = sma(v, i, n)
 		}
 	}
+}
+
+// barAt is bar i of those the values were worked out on, the newest for
+// one past it.
+func (s *series) barAt(i int) market.Bar {
+	if s.vm == nil || s.vm.Bars() == 0 {
+		return market.Bar{H: math.NaN(), L: math.NaN()}
+	}
+	return s.vm.Bar(min(max(i, 0), s.vm.Bars()-1))
 }

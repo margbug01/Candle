@@ -50,6 +50,7 @@ func (a *application) render(c *ui.Context) {
 		a.settingsDialog(c, t, k)
 		a.indicatorsDialog(c, t, k)
 		a.indicatorDialog(c, t, k)
+		a.editorDialog(c, t, k)
 	})
 	// What clicks in this frame do to the lists it was built from, now that
 	// it is built; and a frame to show it.
@@ -281,10 +282,38 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 		a.legends(c, t, k, a.hoverBar(hx, hy, over))
 		a.scaleButtons(c, k, over && hx > a.plotW)
 		a.drawingBar(c, t, k)
+		a.favBar(c, t, k)
 	}
 	if a.older {
 		ui.Text(c, "正在加载更早的 K 线…").Absolute().Left(14).Bottom(timeH + 10).FontSize(12).TextColor(t.TextMuted).PassThrough()
 	}
+	a.noticeBar(c, t, k)
+}
+
+// noticeBar shows, above the time axis, what came into the indicators
+// folder, for a few seconds each.
+func (a *application) noticeBar(c *ui.Context, t *ui.Theme, k palette) {
+	const stay = 8 * time.Second
+	a.notices = slices.DeleteFunc(a.notices, func(n notice) bool { return time.Since(n.at) > stay })
+	if len(a.notices) == 0 {
+		return
+	}
+	ui.Column(c.Key("notices")).Absolute().Left(0).Right(axisW).Bottom(timeH + 52).AlignItems(ui.Center).Gap(6).PassThrough().Children(func() {
+		for i, n := range a.notices {
+			ui.Row(c.Key(fmt.Sprintf("notice-%d", i))).Height(34).Padding(0, 6, 0, 14).Gap(8).AlignItems(ui.Center).MaxWidth(640).
+				Radius(6).Background(k.field).Border(1, k.line).Shadow(0, 4, 14, 0, ui.RGBA(0, 0, 0, 0.25)).Children(func() {
+				ui.Text(c, n.text).FontSize(12).SingleLine().MinWidth(0).Shrink(1)
+				if n.edit != "" && ui.Button(c, "去改").Clicked() {
+					key := n.edit
+					a.later = append(a.later, func() { a.openEditor(key, "") })
+				}
+				if legendButton(c, t, k, fmt.Sprintf("notice-close-%d", i), "关闭提示", clearIcon).Clicked() {
+					a.later = append(a.later, func() { a.notices = slices.DeleteFunc(a.notices, func(m notice) bool { return m.at == n.at }) })
+				}
+			})
+		}
+	})
+	c.After(stay - time.Since(a.notices[0].at) + 10*time.Millisecond)
 }
 
 func overlay(c *ui.Context) ui.Element {

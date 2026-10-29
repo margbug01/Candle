@@ -3,11 +3,15 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"candle/pine"
 )
 
 // The indicators on screen, after TradingView's: 指标 in the top bar lists
@@ -113,7 +117,7 @@ func (a *application) legends(c *ui.Context, t *ui.Theme, k palette, i int) {
 func (a *application) legendRow(c *ui.Context, t *ui.Theme, k palette, ind *indicator, kind *indKind, i int) {
 	id := ind.ID
 	row := ui.Row(c.Key(fmt.Sprintf("ind-%d", id))).Height(20).Padding(0, 4).Gap(2).AlignItems(ui.Center).Radius(4).
-		Label(kind.short + " " + ind.paramText())
+		Label(strings.TrimSpace(kind.short + " " + ind.paramText()))
 	hovered := row.Hovered()
 	if hovered {
 		row.Background(a.set.Chart.Background.or(k.bg)).Border(1, k.line)
@@ -126,6 +130,9 @@ func (a *application) legendRow(c *ui.Context, t *ui.Theme, k palette, ind *indi
 		// The buttons go between the name and the values, as TradingView's:
 		// the values change as the pointer moves to a button, the name does not.
 		fixedText(c, ui.Span{Text: kind.short, Size: 12, Weight: 500, Color: name}, span(" "+ind.paramText(), 12, t.TextMuted, 0)).Margin(0, 4, 0, 0)
+		if kind.broken != "" {
+			fixedText(c, span(shorten(kind.broken, 48), 12, k.down, 0)).Margin(0, 4, 0, 0)
+		}
 		if hovered || ind.Hidden {
 			label, icon := "隐藏指标", eyeIcon
 			if ind.Hidden {
@@ -138,27 +145,50 @@ func (a *application) legendRow(c *ui.Context, t *ui.Theme, k palette, ind *indi
 		}
 		if hovered {
 			if legendButton(c, t, k, fmt.Sprintf("ind-gear-%d", id), "指标设置", gearIcon).Clicked() {
-				a.openIndicator(id)
+				if kind.broken != "" {
+					a.openEditor(kind.key, "")
+				} else {
+					a.openIndicator(id)
+				}
 			}
 			if legendButton(c, t, k, fmt.Sprintf("ind-del-%d", id), "删除指标", clearIcon).Clicked() {
 				a.later = append(a.later, func() { a.deleteIndicator(id) })
 			}
 		}
-		if ind.Hidden {
+		if ind.Hidden || kind.broken != "" {
 			return
 		}
 		var spans []ui.Span
 		s := a.seriesFor(ind)
+		shown := 0
+		for _, pl := range kind.plots {
+			if !pl.hidden {
+				shown++
+			}
+		}
 		for j, pl := range kind.plots {
-			v := s.at(j, i-ind.shift())
+			if pl.hidden {
+				continue
+			}
+			off := ind.shift()
+			if kind.script != nil {
+				off = plotShift(s, j)
+			}
+			v := s.at(j, i-off)
 			text, col := a.valueText(kind, v), ind.color(kind, j)
-			if pl.style != plotLine && !math.IsNaN(v) {
+			switch {
+			case kind.script != nil:
+				col = t.TextMuted
+				if c, ok := plotColor(ind, kind, s, j, i-off); ok {
+					col = c.Alpha(1)
+				}
+			case pl.style != plotLine && !math.IsNaN(v):
 				col = a.plotBarColor(ind, kind, j, s.out[j], i).Alpha(1)
 			}
-			if len(kind.plots) > 1 {
+			if shown > 1 {
 				text = pl.name + " " + text
 			}
-			if j > 0 {
+			if len(spans) > 0 {
 				text = "  " + text
 			}
 			spans = append(spans, span(text, 12, col, 0))
@@ -189,13 +219,18 @@ func dialogHeader(c *ui.Context, t *ui.Theme, k palette, title, closeLabel strin
 	})
 }
 
-// searchKinds are the kinds whose names hold query, all for none.
+// searchKinds are the kinds whose names hold query, all for none: those
+// built in, then the user's.
 func searchKinds(query string) []*indKind {
 	q := strings.ToLower(strings.TrimSpace(query))
 	var out []*indKind
+	all := make([]*indKind, 0, len(indKinds)+len(customs))
 	for i := range indKinds {
-		k := &indKinds[i]
-		if q == "" || strings.Contains(strings.ToLower(k.key+" "+k.short+" "+k.name+" "+k.alias), q) {
+		all = append(all, &indKinds[i])
+	}
+	all = append(all, customList()...)
+	for _, k := range all {
+		if q == "" || strings.Contains(strings.ToLower(k.key+" "+k.short+" "+k.name+" "+k.alias+" "+k.category), q) {
 			out = append(out, k)
 		}
 	}
@@ -231,22 +266,28 @@ func (a *application) indicatorsDialog(c *ui.Context, t *ui.Theme, k palette) {
 					}
 				})
 			})
+			a.customButtons(c, t, k)
 			ui.Scroll(c.Key("ind-kinds")).Grow(1).FillWidth().MinHeight(0).Children(func() {
 				ui.Column(c).FillWidth().Padding(0, 16, 16, 16).Children(func() {
-					if len(hits) == 0 {
+					searching := strings.TrimSpace(a.indQuery) != ""
+					if len(hits) == 0 && searching {
 						ui.Text(c, "没有找到「"+strings.TrimSpace(a.indQuery)+"」").FontSize(13).TextColor(t.TextMuted).Padding(12, 8)
-						return
 					}
-					for _, pane := range []bool{false, true} {
-						shown := false
+					for _, cat := range categories {
+						var in []*indKind
 						for _, kind := range hits {
-							if kind.pane != pane {
-								continue
+							if kind.category == cat {
+								in = append(in, kind)
 							}
-							if !shown {
-								section(c, t, map[bool]string{false: "主图（叠加在 K 线上）", true: "副图（K 线下方单独一栏）"}[pane])
-								shown = true
-							}
+						}
+						switch {
+						case cat == "自定义" && len(in) == 0 && !searching:
+							ui.Text(c, "还没有自己的指标。可以新建、把 TradingView 上指标的代码复制后从剪贴板导入，或者让 Agent 把 .pine 文件写进指标文件夹（文件夹里的 README 写了怎么写）。").
+								FontSize(12).TextColor(t.TextMuted).Padding(12, 12, 4, 12).FillWidth()
+						case len(in) > 0:
+							section(c, t, cat)
+						}
+						for _, kind := range in {
 							a.kindRow(c, t, k, kind)
 						}
 					}
@@ -269,15 +310,31 @@ func (a *application) kindRow(c *ui.Context, t *ui.Theme, k palette, kind *indKi
 		row.Background(k.hover)
 	}
 	row.Children(func() {
-		ui.Text(c, kind.short).FontSize(13).FontWeight(600).Width(56).Shrink(0).SingleLine()
-		ui.Text(c, kind.name).FontSize(13).TextColor(t.TextMuted).Grow(1).MinWidth(0).SingleLine()
+		ui.Text(c, kind.short).FontSize(13).FontWeight(600).Width(88).Shrink(0).SingleLine()
+		if kind.broken != "" {
+			ui.Text(c, kind.broken).FontSize(12).TextColor(k.down).Grow(1).MinWidth(0).SingleLine()
+		} else {
+			ui.Text(c, kind.name).FontSize(13).TextColor(t.TextMuted).Grow(1).MinWidth(0).SingleLine()
+			fixedText(c, span(map[bool]string{false: "主图", true: "副图"}[kind.pane], 11, t.TextMuted, 0))
+		}
 		if count > 0 {
 			fixedText(c, span(fmt.Sprintf("已添加 %d", count), 12, k.accent, 0))
 		}
-		ui.Icon(c, plusIcon).Size(14, 14).TextColor(t.TextMuted).Shrink(0)
+		if kind.custom != "" {
+			if legendButton(c, t, k, "edit-"+kind.key, "编辑 "+kind.short, editIcon).Clicked() {
+				a.later = append(a.later, func() { a.openEditor(kind.key, "") })
+			}
+		}
+		if kind.broken == "" {
+			ui.Icon(c, plusIcon).Size(14, 14).TextColor(t.TextMuted).Shrink(0)
+		}
 	})
 	if row.Clicked() {
-		a.later = append(a.later, func() { a.addIndicator(kind) })
+		if kind.broken != "" {
+			a.later = append(a.later, func() { a.openEditor(kind.key, "") })
+		} else {
+			a.later = append(a.later, func() { a.addIndicator(kind) })
+		}
 	}
 }
 
@@ -320,12 +377,11 @@ func (a *application) indicatorDialog(c *ui.Context, t *ui.Theme, k palette) {
 		ui.Column(c).FillWidth().Children(func() {
 			dialogHeader(c, t, k, kind.short+" · "+kind.name, "关闭指标设置", func() { a.closeIndicator(false) })
 			ui.Column(c).FillWidth().Padding(0, 28, 16, 24).Children(func() {
-				section(c, t, "参数")
+				if len(kind.params) > 0 {
+					section(c, t, "参数")
+				}
 				for j, pd := range kind.params {
-					row(c, pd.name, func() {
-						ui.NumberInput(c.Key("ind-param-"+id+"-"+strconv.Itoa(j)), &ind.Params[j], pd.lo, pd.hi, pd.step).
-							Width(170).Shrink(0).Label(kind.short + " " + pd.name)
-					})
+					a.paramRow(c, kind, ind, id, j, pd)
 				}
 				if kind.source {
 					row(c, "源", func() {
@@ -340,7 +396,17 @@ func (a *application) indicatorDialog(c *ui.Context, t *ui.Theme, k palette) {
 				}
 				section(c, t, "样式")
 				for j, pl := range kind.plots {
+					if pl.hidden {
+						continue
+					}
 					key := "ind-" + id + "-" + strconv.Itoa(j)
+					if pl.dynamic {
+						row(c, pl.name, func() {
+							ui.Text(c, "颜色随脚本").FontSize(12).TextColor(t.TextMuted).Width(60)
+							widthButtons(c, t, k, key+"-width", ind.Widths[j], func(w float64) { ind.Widths[j] = w })
+						})
+						continue
+					}
 					if pl.style != plotLine {
 						up, down := "上涨", "下跌"
 						if pl.style == plotHist {
@@ -363,6 +429,10 @@ func (a *application) indicatorDialog(c *ui.Context, t *ui.Theme, k palette) {
 					fresh := indicator{ID: ind.ID, Kind: ind.Kind, Hidden: ind.Hidden, Height: ind.Height}
 					fresh.fix()
 					*ind = fresh
+				}
+				if kind.custom != "" && ui.Button(c, "编辑代码").Clicked() {
+					key := kind.key
+					a.later = append(a.later, func() { a.closeIndicator(true); a.openEditor(key, "") })
 				}
 				ui.Box(c).Grow(1)
 				if ui.Button(c, "取消").Clicked() {
@@ -394,3 +464,76 @@ func widthButtons(c *ui.Context, t *ui.Theme, k palette, key string, cur float64
 		}
 	}
 }
+
+var editIcon = svg("<path d='M10.5 3 13 5.5 6 12.5H3.5V10z'/><path d='M9 4.5 11.5 7'/>")
+
+// paramRow sets parameter j of ind as its kind has it: a number, a check
+// box, a choice or a color.
+func (a *application) paramRow(c *ui.Context, kind *indKind, ind *indicator, id string, j int, pd paramDef) {
+	key := "ind-param-" + id + "-" + strconv.Itoa(j)
+	label := kind.short + " " + pd.name
+	switch pd.kind {
+	case paramFixed:
+		return
+	case paramBool:
+		on := ind.Params[j] != 0
+		ui.Row(c).FillWidth().MinHeight(40).AlignItems(ui.Center).Children(func() {
+			ui.Checkbox(c.Key(key), &on, pd.name).Label(label)
+		})
+		ind.Params[j] = map[bool]float64{true: 1, false: 0}[on]
+		return
+	}
+	row(c, pd.name, func() {
+		switch pd.kind {
+		case paramChoice:
+			a.dropdown(c, label, pd.opts, strconv.Itoa(int(ind.Params[j])), func(v string) {
+				ind.Params[j], _ = strconv.ParseFloat(v, 64)
+			}).Width(220).MinWidth(170)
+		case paramNumChoice:
+			a.dropdown(c, label, pd.opts, strconv.FormatFloat(ind.Params[j], 'f', -1, 64), func(v string) {
+				ind.Params[j], _ = strconv.ParseFloat(v, 64)
+			}).Width(170).MinWidth(170)
+		case paramColor:
+			col, _ := toColor(ind.Params[j])
+			a.well(c, key, col, func(h hexColor) {
+				ind.Params[j] = pine.Pack(h.R, h.G, h.B, h.A)
+			}).Label(label)
+		default:
+			ui.NumberInput(c.Key(key), &ind.Params[j], pd.lo, pd.hi, pd.step).Width(170).Shrink(0).Label(label)
+		}
+		if pd.tip != "" {
+			ui.Text(c, pd.tip).FontSize(12).TextColor(c.Theme().TextMuted).Grow(1).MinWidth(0)
+		}
+	})
+}
+
+// customButtons, under the search, make a script of the user's, take one
+// from the clipboard, and open the folder they are in.
+func (a *application) customButtons(c *ui.Context, t *ui.Theme, k palette) {
+	ui.Row(c).FillWidth().Shrink(0).Padding(0, 24, 8, 24).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "自己的指标（Pine Script）").FontSize(12).TextColor(t.TextMuted).Grow(1)
+		if ui.Button(c, "新建").Label("新建指标").Clicked() {
+			a.later = append(a.later, func() { a.openEditor("", newScript) })
+		}
+		if ui.Button(c, "从剪贴板导入").Clicked() {
+			a.later = append(a.later, a.importClipboard)
+		}
+		if ui.Button(c, "打开文件夹").Clicked() {
+			if dir := a.indicatorsDir(); dir != "" {
+				os.MkdirAll(dir, 0o755)
+				writeReadme(dir)
+				openPath(dir)
+			}
+		}
+	})
+}
+
+var openPath = func(path string) { mygo.Shell.OpenPath(path) }
+
+// newScript is what a new indicator starts as.
+const newScript = `//@version=6
+indicator("我的指标", overlay = true)
+length = input.int(20, "周期", minval = 1)
+src = input.source(close, "源")
+plot(ta.sma(src, length), "均线", color = color.orange, linewidth = 2)
+`

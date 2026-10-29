@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"candle/market"
+	"candle/pine"
 )
 
 // TestLive runs the app against Binance, without a window: what the
@@ -47,7 +48,7 @@ func TestLive(t *testing.T) {
 			s := a.seriesFor(ind)
 			k, _ := kindOf(ind.Kind)
 			var fresh series
-			fresh.update(k, ind.Params, ind.Source, a.bars, a.gen)
+			fresh.update(k, ind.Params, ind.Source, a.bars, a.gen, pine.Env{}, "")
 			for j := range k.plots {
 				same(t, what+" "+ind.Kind, s.out[j], fresh.out[j], 0)
 			}

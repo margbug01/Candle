@@ -187,7 +187,8 @@ func (a *application) seriesFor(ind *indicator) *series {
 		s = &series{}
 		a.series[ind.ID] = s
 	}
-	s.update(k, ind.Params, ind.Source, a.bars, a.gen)
+	env, key := a.pineEnv()
+	s.update(k, ind.Params, ind.Source, a.bars, a.gen, env, key)
 	return s
 }
 
@@ -250,6 +251,8 @@ func (a *application) valueText(k *indKind, v float64) string {
 		return formatVolume(v)
 	case k.decimals == -1:
 		return formatPrice(v, a.chartDecimals(v))
+	case k.decimals == -3:
+		return formatPrice(v, min(autoDecimals(v), 8))
 	}
 	return formatPrice(v, k.decimals)
 }
@@ -268,6 +271,13 @@ func (a *application) overlays(fn func(ind *indicator, k *indKind, s *series)) {
 // from to bar to, but those a log scale cannot show.
 func (a *application) overlayRange(from, to int, lo, hi float64, log bool) (float64, float64) {
 	a.overlays(func(ind *indicator, k *indKind, s *series) {
+		if k.script != nil {
+			l, h := scriptRange(k, s, from, to, math.Inf(1), math.Inf(-1))
+			if l <= h && (!log || l > 0) {
+				lo, hi = min(lo, l), max(hi, h)
+			}
+			return
+		}
 		off := ind.shift()
 		for j := range k.plots {
 			vals := s.out[j]
@@ -327,8 +337,13 @@ func fillBetween(p *ui.Painter, x func(int) float32, y func(float64) float32, to
 }
 
 // drawOverlays draws the indicators over the candles.
-func (a *application) drawOverlays(p *ui.Painter, x func(int) float32, y func(float64) float32, from, to int) {
+func (a *application) drawOverlays(cv canvas) {
+	p, x, y, from, to := cv.p, cv.x, cv.y, cv.from, cv.to
 	a.overlays(func(ind *indicator, k *indKind, s *series) {
+		if k.script != nil {
+			a.drawScript(cv, ind, k, s)
+			return
+		}
 		off := ind.shift()
 		if len(k.fill) == 2 {
 			fillBetween(p, x, y, s.out[k.fill[0]], s.out[k.fill[1]], from, to, off, ind.color(k, k.fill[0]).Alpha(0.07))
@@ -354,15 +369,45 @@ func (a *application) overlayTags(y func(float64) float32, text func(float64) st
 		return nil
 	}
 	a.overlays(func(ind *indicator, k *indKind, s *series) {
-		for j := range k.plots {
-			if v := s.at(j, len(a.bars)-1); !math.IsNaN(v) {
-				if yy := y(v); yy >= top && yy <= bottom {
-					tags = append(tags, axisTag{yy, text(v), ind.color(k, j)})
-				}
+		for _, t := range a.newestTags(ind, k, s) {
+			if yy := y(t.v); yy >= top && yy <= bottom {
+				tags = append(tags, axisTag{yy, text(t.v), t.c})
 			}
 		}
 	})
 	return placeTags(tags, fixed, top+10, bottom-10)
+}
+
+type newest struct {
+	v float64
+	c ui.Color
+}
+
+// newestTags are the values of ind's lines on the newest bar, in their colors.
+func (a *application) newestTags(ind *indicator, k *indKind, s *series) []newest {
+	var out []newest
+	last := len(a.bars) - 1
+	for j, pl := range k.plots {
+		if k.script != nil {
+			if pl.hidden {
+				continue
+			}
+			i := last - plotShift(s, j)
+			c, ok := plotColor(ind, k, s, j, i)
+			if v := s.at(j, i); !math.IsNaN(v) && ok {
+				out = append(out, newest{v, c.Alpha(1)})
+			}
+			continue
+		}
+		if v := s.at(j, last); !math.IsNaN(v) {
+			c := ind.color(k, j)
+			if pl.style != plotLine {
+				c = a.plotBarColor(ind, k, j, s.out[j], last).Alpha(1)
+			}
+			out = append(out, newest{v, c})
+		}
+	}
+	return out
 }
 
 // A fixedLabel is a label on the price axis that stays where its price is,
@@ -484,7 +529,10 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 	ax := axis{h: r.H, top: 0.1, bottom: 0.92}
 	var s *series
 	lo, hi := math.Inf(1), math.Inf(-1)
-	if !ind.Hidden {
+	if !ind.Hidden && kind.script != nil {
+		s = a.seriesFor(ind)
+		lo, hi = scriptRange(kind, s, from, to, lo, hi)
+	} else if !ind.Hidden && kind.broken == "" {
 		s = a.seriesFor(ind)
 		for j, pl := range kind.plots {
 			for _, v := range s.out[j][from : to+1] {
@@ -520,18 +568,9 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 
 	var tags []axisTag
 	if s != nil && st.IndValues {
-		n := len(a.bars)
-		for j, pl := range kind.plots {
-			v := s.at(j, n-1)
-			if math.IsNaN(v) {
-				continue
-			}
-			c := ind.color(kind, j)
-			if pl.style != plotLine {
-				c = a.plotBarColor(ind, kind, j, s.out[j], n-1).Alpha(1)
-			}
-			if yy := mid(y(v)); yy >= r.Y && yy <= r.Y+r.H {
-				tags = append(tags, axisTag{yy, a.valueText(kind, v), c})
+		for _, t := range a.newestTags(ind, kind, s) {
+			if yy := mid(y(t.v)); yy >= r.Y && yy <= r.Y+r.H {
+				tags = append(tags, axisTag{yy, a.valueText(kind, t.v), t.c})
 			}
 		}
 		tags = spreadTags(tags, r.Y+10, r.Y+r.H-10)
@@ -559,6 +598,13 @@ func (a *application) drawPane(p *ui.Painter, r ui.Rect, ind *indicator, x func(
 		label(p, r.X+r.W+8, yy, span(text, size, textCol, 0), alignStart)
 	}
 	if s == nil {
+		return paneScale{kind, sc, ax}
+	}
+	if kind.script != nil {
+		p.Clip(r, 0, func() {
+			a.drawScript(canvas{p: p, r: r, x: x, y: y, from: from, to: to, bw: bw, px: px, sp: a.view.spacing, mid: mid, k: k}, ind, kind, s)
+		})
+		drawTags(p, r.X+r.W, tags, size+0.5)
 		return paneScale{kind, sc, ax}
 	}
 	p.Clip(r, 0, func() {

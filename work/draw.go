@@ -399,7 +399,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 			p.Fill(ui.Rect{X: xc - bw/2, Y: plot.Y + plot.H - h, W: bw, H: h}, c.Alpha(0.3), 0)
 		}
 		a.drawBars(p, plot, k, v, from, to, y, bw, px, mid, snap)
-		a.drawOverlays(p, xAt, y, from, to)
+		a.drawOverlays(canvas{p: p, r: plot, x: xAt, y: y, from: from, to: to, bw: bw, px: px, sp: v.spacing, mid: mid, k: k, main: true})
 		if showLine {
 			dash(p, plot.X, mid(y(last.C)), plot.X+plot.W, mid(y(last.C)), px, lastCol, "")
 		}

@@ -146,6 +146,14 @@ type application struct {
 	indBefore  indicator
 	later      []func()
 
+	// The user's scripts: the folder they are in (beside the settings
+	// unless set), the words on the chart about them, those Candle saved
+	// itself, and the editor.
+	indDir  string
+	notices []notice
+	ownSave map[string]bool
+	ed      *scriptEditor
+
 	// The settings dialog: open, and the style as it was, for 取消.
 	dialog, editing bool
 	before          style
@@ -195,6 +203,7 @@ func (a *application) start() {
 	a.loadIcons(false)
 	a.spawn(a.syncClock)
 	a.watchUpdates()
+	a.watchScripts()
 }
 
 // save writes the settings. While the settings dialog is open the chart is

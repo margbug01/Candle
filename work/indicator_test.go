@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"candle/market"
+	"candle/pine"
 )
 
 func barsOfCloses(cs ...float64) []market.Bar {
@@ -28,7 +29,7 @@ func values(t *testing.T, key string, b []market.Bar, p ...float64) [][]float64 
 		t.Fatalf("no kind %q", key)
 	}
 	var s series
-	s.update(k, p, "", b, 1)
+	s.update(k, p, "", b, 1, pine.Env{}, "")
 	return s.out
 }
 
@@ -153,12 +154,12 @@ func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 		var s series
 		check := func(what string, from int) {
 			t.Helper()
-			s.update(k, ind.Params, "", bars, 1)
+			s.update(k, ind.Params, "", bars, 1, pine.Env{}, "")
 			if s.from != from {
 				t.Fatalf("%s %s: began at %d, want %d", ind.Kind, what, s.from, from)
 			}
 			var fresh series
-			fresh.update(k, ind.Params, "", bars, 1)
+			fresh.update(k, ind.Params, "", bars, 1, pine.Env{}, "")
 			for j := range k.plots {
 				same(t, ind.Kind+" "+what, s.out[j], fresh.out[j], 0)
 			}
@@ -168,7 +169,7 @@ func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 		bars[n-1].C *= 1.01
 		bars[n-1].H = max(bars[n-1].H, bars[n-1].C)
 		check("newest bar changed", n-1)
-		s.update(k, ind.Params, "", bars, 1)
+		s.update(k, ind.Params, "", bars, 1, pine.Env{}, "")
 		if s.from != n-1 {
 			t.Fatal("unchanged bars were worked out again")
 		}
@@ -180,13 +181,13 @@ func TestSeriesUpdatesOnlyTheTail(t *testing.T) {
 		check("the bar before the newest corrected", 0)
 		bars = append(append([]market.Bar(nil), all[:1000]...), bars...)
 		check("older bars in front", 0)
-		s.update(k, ind.Params, "", bars, 2)
+		s.update(k, ind.Params, "", bars, 2, pine.Env{}, "")
 		if s.from != 0 {
 			t.Fatalf("%s: another market began at %d", ind.Kind, s.from)
 		}
 		p := append([]float64(nil), ind.Params...)
 		p[0]++
-		s.update(k, p, "", bars, 2)
+		s.update(k, p, "", bars, 2, pine.Env{}, "")
 		if s.from != 0 {
 			t.Fatalf("%s: other parameters began at %d", ind.Kind, s.from)
 		}
@@ -204,7 +205,7 @@ func TestIndicatorsAreQuick(t *testing.T) {
 	t0 := time.Now()
 	for i, ind := range list {
 		k, _ := kindOf(ind.Kind)
-		ss[i].update(k, ind.Params, "", bars, 1)
+		ss[i].update(k, ind.Params, "", bars, 1, pine.Env{}, "")
 	}
 	full := time.Since(t0)
 	t0 = time.Now()
@@ -213,7 +214,7 @@ func TestIndicatorsAreQuick(t *testing.T) {
 		bars[len(bars)-1].C += 0.5
 		for i, ind := range list {
 			k, _ := kindOf(ind.Kind)
-			ss[i].update(k, ind.Params, "", bars, 1)
+			ss[i].update(k, ind.Params, "", bars, 1, pine.Env{}, "")
 		}
 	}
 	tick := time.Since(t0) / ticks
@@ -227,7 +228,7 @@ func TestFixIndicators(t *testing.T) {
 	list := fixIndicators([]indicator{
 		{ID: 3, Kind: "ma", Params: []float64{-4}},
 		{ID: 3, Kind: "macd", Params: []float64{5}, Colors: []hexColor{{R: 1, A: 255}}, Widths: []float64{9, 2}, Height: 7},
-		{ID: 1, Kind: "supertrend"},
+		{ID: 1, Kind: "nonsense"},
 		{Kind: "boll", Params: []float64{20, math.NaN()}},
 	})
 	if len(list) != 3 {
@@ -295,14 +296,14 @@ func TestSources(t *testing.T) {
 	for src, want := range map[string]float64{"": 5, "open": 2, "high": 6, "low": 8.0 / 3, "hl2": 13.0 / 3,
 		"hlc3": 41.0 / 9, "ohlc4": 11.75 / 3} {
 		var s series
-		s.update(k, []float64{3}, src, b, 1)
+		s.update(k, []float64{3}, src, b, 1, pine.Env{}, "")
 		if got := s.at(0, 2); math.Abs(got-want) > 1e-12 {
 			t.Errorf("MA3 of %q: %v, want %v", src, got, want)
 		}
 	}
 	var s series
-	s.update(k, []float64{3}, "", b, 1)
-	s.update(k, []float64{3}, "high", b, 1)
+	s.update(k, []float64{3}, "", b, 1, pine.Env{}, "")
+	s.update(k, []float64{3}, "high", b, 1, pine.Env{}, "")
 	if s.from != 0 || s.at(0, 2) != 6 {
 		t.Fatalf("another source began at %d: %v", s.from, s.at(0, 2))
 	}
@@ -313,7 +314,7 @@ func TestSources(t *testing.T) {
 	}
 	rk, _ := kindOf("rsi")
 	var r series
-	r.update(rk, []float64{3}, "open", bars, 1)
+	r.update(rk, []float64{3}, "open", bars, 1, pine.Env{}, "")
 	same(t, "RSI of the opens", r.out[0], values(t, "rsi", barsOfCloses(opens...), 3)[0], 1e-12)
 }
 

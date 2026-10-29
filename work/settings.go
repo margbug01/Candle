@@ -25,6 +25,12 @@ type settings struct {
 	// (crypto, futures, us); Folded those folded away.
 	Sections []string `json:",omitempty"`
 	Folded   []string `json:",omitempty"`
+	// FavTools are the drawing tools on the bar of favorites, which floats
+	// over the chart, its top left FavX and FavY of the way across and down
+	// it; FavBar shows it.
+	FavTools   []string
+	FavBar     bool
+	FavX, FavY float64
 }
 
 func defaultSettings() settings {
@@ -35,6 +41,10 @@ func defaultSettings() settings {
 		Chart:      defaultStyle(),
 		Magnet:     true,
 		AutoUpdate: true,
+		FavTools:   []string{"trend", "hline", "rect", "fib", "long", "short"},
+		FavBar:     true,
+		FavX:       1,
+		FavY:       0.01,
 	}
 }
 
@@ -63,6 +73,14 @@ func loadSettings(file string) settings {
 		})
 	}
 	s.Indicators = fixIndicators(s.Indicators)
+	seen := map[string]bool{}
+	s.FavTools = slices.DeleteFunc(s.FavTools, func(k string) bool {
+		_, ok := toolOf(k)
+		drop := !ok || seen[k]
+		seen[k] = true
+		return drop
+	})
+	s.FavX, s.FavY = min(max(s.FavX, 0), 1), min(max(s.FavY, 0), 1)
 	if s.Symbol == "" {
 		s.Symbol = "BTCUSDT"
 	}

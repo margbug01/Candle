@@ -84,7 +84,9 @@ func TestAddIndicatorsFromTheList(t *testing.T) {
 
 // The search finds kinds by their Chinese names too.
 func TestSearchKinds(t *testing.T) {
-	for q, want := range map[string]string{"": "MA EMA BOLL MACD RSI KDJ VOL", "布林": "BOLL", "均线": "MA EMA MACD", "rsi": "RSI", "zz": ""} {
+	all := "MA EMA BOLL MACD RSI KDJ VOL WMA HMA VWMA VWAP KC DC Ichimoku SAR SuperTrend DMI Aroon StochRSI CCI WR ROC TRIX BIAS ATR OBV MFI CMF"
+	for q, want := range map[string]string{"": all, "布林": "BOLL", "均线": "MA EMA MACD WMA HMA VWMA", "rsi": "RSI StochRSI",
+		"抛物线": "SAR", "超级": "SuperTrend", "ichimoku": "Ichimoku", "成交量": "VOL VWMA VWAP OBV MFI CMF", "zz": ""} {
 		var got []string
 		for _, k := range searchKinds(q) {
 			got = append(got, k.short)
