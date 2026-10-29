@@ -55,7 +55,7 @@ func TestBarsShowWhateverTheCandles(t *testing.T) {
 	for i, pn := range panes {
 		r := ui.Rect{X: chartLeft(a), Y: chartTop(a) + pn.y + 24, W: a.plotW, H: pn.h - 26}
 		if g, rd := countPixels(img, r, green), countPixels(img, r, red); g < 100 || rd < 100 {
-			t.Errorf("%s: %d green pixels, %d red", a.set.Indicators[pn.idx].Kind, g, rd)
+			t.Errorf("%s: %d green pixels, %d red", a.indicators[pn.idx].Kind, g, rd)
 		}
 		_ = i
 	}
@@ -68,7 +68,7 @@ func TestBarsShowWhateverTheCandles(t *testing.T) {
 // MACD's bars go behind its lines: DIF runs on through every column.
 func TestPaneLinesOverTheirBars(t *testing.T) {
 	a := withIndicators("macd")
-	macd := &a.set.Indicators[0]
+	macd := &a.indicators[0]
 	macd.Colors[1] = hexColor{R: 1} // DEA unseen, so as not to cross DIF
 	macd.Widths[0] = 2
 	tt := newTester(a, true)
@@ -101,7 +101,7 @@ func TestPaneAxisScalesItsPane(t *testing.T) {
 	tt := newTester(a, true)
 	rel := func(got, want float64) bool { return math.Abs(got-want) <= math.Abs(want)*1e-6 }
 	_, panes := a.layout(a.boxH - timeH)
-	macd, rsi := a.set.Indicators[0].ID, a.set.Indicators[1].ID
+	macd, rsi := a.indicators[0].ID, a.indicators[1].ID
 	ax, y := chartLeft(a)+a.plotW+30, chartTop(a)+panes[0].y+panes[0].h/2
 	tt.Move(ax, y)
 	tt.Frame()
@@ -172,7 +172,7 @@ func TestPaneAxisScalesItsPane(t *testing.T) {
 // unless the settings say not to.
 func TestValueTags(t *testing.T) {
 	a := withIndicators("ma", "rsi")
-	ma, rsi := &a.set.Indicators[0], &a.set.Indicators[1]
+	ma, rsi := &a.indicators[0], &a.indicators[1]
 	ma.Params[0] = 60
 	tt := newTester(a, true)
 	n := len(a.bars)
@@ -207,7 +207,7 @@ func TestValueTags(t *testing.T) {
 // drawn.
 func TestOffset(t *testing.T) {
 	a := withIndicators("ma")
-	ma := &a.set.Indicators[0]
+	ma := &a.indicators[0]
 	ma.Offset = 3
 	tt := newTester(a, true)
 	n := len(a.bars)
@@ -242,7 +242,7 @@ func TestOffset(t *testing.T) {
 func TestIndicatorSourceAndOffsetSettings(t *testing.T) {
 	a := withIndicators("ma")
 	tt := newTester(a, true)
-	ma := &a.set.Indicators[0]
+	ma := &a.indicators[0]
 	hoverRow(t, tt, "MA 5")
 	click(t, tt, "指标设置")
 	click(t, tt, "MA 源")
@@ -274,14 +274,14 @@ func TestPaneShots(t *testing.T) {
 	}
 	// Light, white rising and black falling candles, EMA26 and MACD.
 	a := withIndicators("ema", "ema", "macd")
-	a.set.Indicators = a.set.Indicators[1:]
+	a.indicators = a.indicators[1:]
 	st := &a.set.Chart
 	st.Up, st.Down, st.BorderUp, st.Background, st.Volume = hexColor(ui.Hex("#ffffff")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#000000")), hexColor(ui.Hex("#ffffff")), false
 	tt := newTester(a, false)
 	shot(t, tt, "white-candles-light")
 
 	a = withIndicators("ma", "boll", "macd", "rsi")
-	a.set.Indicators[1].Offset = 10
+	a.indicators[1].Offset = 10
 	tt = newTester(a, true)
 	_, panes := a.layout(a.boxH - timeH)
 	ax, y := chartLeft(a)+a.plotW+30, chartTop(a)+panes[0].y+panes[0].h/2
@@ -363,7 +363,7 @@ func TestIndicatorLabelClearsTheLastPrice(t *testing.T) {
 	a := testApp()
 	k, _ := kindOf("ma")
 	a.addIndicator(k)
-	ind := &a.set.Indicators[len(a.set.Indicators)-1]
+	ind := &a.indicators[len(a.indicators)-1]
 	ind.Params = []float64{1}
 	ind.Colors = []hexColor{hexColor(ui.Hex("#ff00ff"))}
 	tt := newTester(a, true)

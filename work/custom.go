@@ -166,17 +166,17 @@ func (a *application) takeScripts(files map[string]scriptFile, first bool) {
 		k := compileFile(f, old)
 		k.rev = f.mod.UnixNano() + f.size
 		next[key] = k
-		if old == nil && !first && !a.ownSave[key] && !slices.ContainsFunc(a.set.Indicators, func(ind indicator) bool { return ind.Kind == key }) {
+		if old == nil && !first && !a.ownSave[key] && !a.onAnyChart(key) {
 			added = append(added, k)
 		}
 	}
 	customs = next
 	a.ownSave = nil
-	for i := range a.set.Indicators { // their inputs may have changed
-		if isScriptKey(a.set.Indicators[i].Kind) {
-			a.set.Indicators[i].fix()
+	a.everyIndicator(func(ind *indicator) { // their inputs may have changed
+		if isScriptKey(ind.Kind) {
+			ind.fix()
 		}
-	}
+	})
 	slices.SortFunc(added, func(x, y *indKind) int { return cmp.Compare(x.key, y.key) })
 	switch {
 	case len(added) > 3:
@@ -255,11 +255,11 @@ func (a *application) saveScript(key, src string) (string, error) {
 		a.ownSave = map[string]bool{}
 	}
 	a.ownSave[key] = true // the watcher will find it: it is not new to the user
-	for i := range a.set.Indicators {
-		if a.set.Indicators[i].Kind == key {
-			a.set.Indicators[i].fix()
+	a.everyIndicator(func(ind *indicator) {
+		if ind.Kind == key {
+			ind.fix()
 		}
-	}
+	})
 	a.writeStatus()
 	a.searchGen++
 	return key, nil
@@ -308,10 +308,14 @@ func (a *application) deleteScript(key string) error {
 		}
 	}
 	customs = next
-	for _, ind := range slices.Clone(a.set.Indicators) {
-		if ind.Kind == key {
-			a.deleteIndicator(ind.ID)
-		}
+	for _, c := range a.cells { // off every chart, those the layout hides too
+		a.on(c, func() {
+			for _, ind := range slices.Clone(a.indicators) {
+				if ind.Kind == key {
+					a.deleteIndicator(ind.ID)
+				}
+			}
+		})
 	}
 	a.writeStatus()
 	a.searchGen++
@@ -379,9 +383,7 @@ func (a *application) writeStatus() {
 				e.Warnings = append(e.Warnings, errorText(k.script.Source(), w))
 			}
 		}
-		for _, ind := range a.set.Indicators {
-			e.OnChart = e.OnChart || ind.Kind == k.key
-		}
+		e.OnChart = a.onAnyChart(k.key)
 		st.Files[filepath.Base(k.custom)] = e
 	}
 	data, _ := json.MarshalIndent(st, "", "  ")

@@ -428,7 +428,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 
 	scales := make([]paneScale, len(panes))
 	for i, pn := range panes {
-		scales[i] = a.drawPane(p, ui.Rect{X: plot.X, Y: r.Y + pn.y, W: plot.W, H: pn.h}, &a.set.Indicators[pn.idx], xAt, from, to, k, bw, px, mid)
+		scales[i] = a.drawPane(p, ui.Rect{X: plot.X, Y: r.Y + pn.y, W: plot.W, H: pn.h}, &a.indicators[pn.idx], xAt, from, to, k, bw, px, mid)
 	}
 
 	// The crosshair runs down every pane; its line across, and the label on
@@ -454,6 +454,29 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 			}
 		}
 		ts := span(st.crossTime(a.bars[hover].T, ivMs), size+0.5, k.onLabel, 0)
+		w, _ := p.MeasureText(0, ts)
+		bx := min(max(cx-w/2-8, plot.X), plot.X+plot.W-w-16)
+		p.Fill(ui.Rect{X: bx, Y: bottom + 3, W: w + 16, H: timeH - 6}, k.label, 2)
+		label(p, bx+8, bottom+timeH/2, ts, alignStart)
+	}
+
+	// The crosshair on another chart of the layout: down this one at its
+	// time, and across at its price on the same market.
+	if i, ok := a.syncedBar(); ok && !over {
+		cx := mid(plot.X + v.x(i, plot.W, n))
+		if cx < plot.X || cx > plot.X+plot.W {
+			return
+		}
+		cross := st.Cross.or(k.cross)
+		dash(p, cx, plot.Y, cx, bottom, px, cross, st.CrossStyle)
+		if pr := a.cross.price; a.cross.from.symbol == a.symbol && !math.IsNaN(pr) {
+			if cy := mid(y(pr)); cy >= plot.Y && cy <= plot.Y+plot.H {
+				dash(p, plot.X, cy, plot.X+plot.W, cy, px, cross, st.CrossStyle)
+				p.Fill(ui.Rect{X: plot.X + plot.W, Y: cy - 10, W: axisW, H: 20}, k.label, 2)
+				label(p, axisX, cy, span(priceText(pr), size+0.5, k.onLabel, 0), alignStart)
+			}
+		}
+		ts := span(st.crossTime(a.bars[i].T, ivMs), size+0.5, k.onLabel, 0)
 		w, _ := p.MeasureText(0, ts)
 		bx := min(max(cx-w/2-8, plot.X), plot.X+plot.W-w-16)
 		p.Fill(ui.Rect{X: bx, Y: bottom + 3, W: w + 16, H: timeH - 6}, k.label, 2)

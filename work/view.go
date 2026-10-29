@@ -39,6 +39,7 @@ func (a *application) render(c *ui.Context) {
 	k.apply(&theme)
 	c.SetTheme(&theme)
 	t := &theme
+	a.cell = a.activeCell()
 	a.drawingShortcuts(c) // window-wide: declared before anything is built in
 	ui.Column(c).FillWidth().FillHeight().Background(k.bg).Children(func() {
 		a.toolbar(c, t, k)
@@ -84,6 +85,7 @@ func (a *application) toolbar(c *ui.Context, t *ui.Theme, k palette) {
 			divider(c, k)
 		}
 		a.indicatorsButton(c, t, k)
+		a.layoutButton(c, t, k)
 		ui.Box(c).Grow(1).FillHeight().DragWindow()
 		a.updateBadge(c, t, k)
 		a.gearButton(c, t, k)
@@ -145,7 +147,7 @@ func (a *application) intervalButton(c *ui.Context, t *ui.Theme, k palette, iv i
 		ui.Text(c, iv.label).FontSize(13).FontWeight(500).TextColor(col).SingleLine().Width(float32(math.Ceil(float64(w))) + 1)
 	})
 	if b.Clicked() && !chosen {
-		a.open(a.symbol, iv.key)
+		a.openSynced(a.symbol, iv.key)
 	}
 }
 
@@ -190,7 +192,7 @@ func (a *application) sessionButtons(c *ui.Context, t *ui.Theme, k palette) {
 			if b.Clicked() && !chosen && !daily {
 				a.set.FuturesRTH = o.rth
 				a.save()
-				a.open(a.symbol, a.interval)
+				a.reopenFutures()
 			}
 		}
 	})
@@ -217,20 +219,41 @@ func (a *application) status(c *ui.Context, t *ui.Theme, k palette) {
 	}
 }
 
-// chartArea is the chart, drawn by drawChart, with the messages and the
-// button to the newest bar on top of it.
+// chartArea is the charts as the layout has them.
 func (a *application) chartArea(c *ui.Context, t *ui.Theme, k palette) {
-	if st := &a.set.Chart; st.Scale != a.scaleMode { // the prices refit on another scale
-		a.scaleMode, a.scale = st.Scale, prices{}
-	}
-	if h := a.home(); h != a.homeShown { // more or less room on the right: resting there, follow it
-		if a.view.offset == a.homeShown {
-			a.view.offset = h
+	area := ui.Box(c.Key("chart-area")).Grow(1).FillHeight().MinWidth(0)
+	a.area = area.Bounds()
+	area.Children(func() {
+		a.charts(c, t, k, area)
+		// Over all the charts, once: the bar of favorite tools and the
+		// notices of the indicators folder.
+		a.favBar(c, t, k)
+		a.noticeBar(c, t, k)
+	})
+}
+
+// cellBox is a chart of the layout, in its box: the chart drawn by
+// drawChart, with the messages and the button to the newest bar on top of it.
+// It reports whether the pointer went down outside it since the last frame.
+func (a *application) cellBox(c *ui.Context, t *ui.Theme, k palette, i int, box ui.Element) (outside bool) {
+	a.on(a.cells[i], func() {
+		if st := &a.set.Chart; st.Scale != a.scaleMode { // the prices refit on another scale
+			a.scaleMode, a.scale = st.Scale, prices{}
 		}
-		a.homeShown = h
-	}
-	ui.Box(c.Key("chart-area")).Grow(1).FillHeight().MinWidth(0).Children(func() { a.chart(c, t, k) })
-	a.loadOlder()
+		if h := a.home(); h != a.homeShown { // more or less room on the right: resting there, follow it
+			if a.view.offset == a.homeShown {
+				a.view.offset = h
+			}
+			a.homeShown = h
+		}
+		box.Clip().Children(func() {
+			a.chart(c, t, k)
+			a.cellFrame(c, k, i, box.Hovered())
+		})
+		outside = box.PressedOutside()
+		a.loadOlder()
+	})
+	return outside
 }
 
 // chart is the chart itself and, as its siblings on top so that they take
@@ -239,6 +262,7 @@ func (a *application) chartArea(c *ui.Context, t *ui.Theme, k palette) {
 func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 	box := ui.Box(c.Key("chart")).FillWidth().FillHeight()
 	hx, hy, over := box.PointerPosition()
+	a.bounds = box.Bounds()
 	cursor := ui.CursorCrosshair
 	switch {
 	case a.drag == dragSep || a.drag == dragNone && over && len(a.bars) > 0 && a.sepAt(hy) >= 0:
@@ -258,9 +282,20 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 			cursor = ui.CursorPointer
 		}
 	}
-	box.Cursor(cursor).HandleInput(a.chartInput).ContextMenu(a.chartMenu).Draw(func(p *ui.Painter, r ui.Rect) {
-		a.drawChart(p, r, k, hx, hy, over)
-	})
+	cl := a.cell // the handlers run once the frame is built
+	box.Cursor(cursor).
+		HandleInput(func(ev ui.InputEvent) bool {
+			return a.onCell(cl, func() bool {
+				was := a.view
+				took := a.chartInput(ev)
+				if a.view != was {
+					a.syncTime()
+				}
+				return took
+			})
+		}).
+		ContextMenu(func(m *ui.Menu) { a.on(cl, func() { a.chartMenu(m) }) }).
+		Draw(func(p *ui.Painter, r ui.Rect) { a.on(cl, func() { a.drawChart(p, r, k, hx, hy, over) }) })
 	switch {
 	case len(a.bars) == 0 && a.err != "":
 		overlay(c).Children(func() {
@@ -279,15 +314,13 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 		a.latestButton(c, k)
 	}
 	if len(a.bars) > 0 {
-		a.legends(c, t, k, a.hoverBar(hx, hy, over))
+		a.legends(c, t, k, a.legendBar(hx, hy, over))
 		a.scaleButtons(c, k, over && hx > a.plotW)
 		a.drawingBar(c, t, k)
-		a.favBar(c, t, k)
 	}
 	if a.older {
 		ui.Text(c, "正在加载更早的 K 线…").Absolute().Left(14).Bottom(timeH + 10).FontSize(12).TextColor(t.TextMuted).PassThrough()
 	}
-	a.noticeBar(c, t, k)
 }
 
 // noticeBar shows, above the time axis, what came into the indicators
@@ -333,6 +366,7 @@ func (a *application) latestButton(c *ui.Context, k palette) {
 	})
 	if b.Clicked() {
 		a.view.offset = a.home()
+		a.syncTime()
 	}
 }
 
@@ -386,6 +420,15 @@ func (a *application) chartMenu(m *ui.Menu) {
 	if m.Item("重置图表").Chosen() {
 		a.resetView()
 	}
+	if a.shownCells() > 1 {
+		label := "最大化这个图表"
+		if a.maxed >= 0 {
+			label = "还原布局"
+		}
+		if m.Item(label).Chosen() {
+			a.maximize(slices.Index(a.cells, a.cell))
+		}
+	}
 	m.Separator()
 	if m.Item("自动缩放价格").Checked(!a.scale.manual).Chosen() {
 		if a.scale.manual {
@@ -426,6 +469,7 @@ func (a *application) resetView() {
 	for _, pv := range a.paneViews {
 		pv.scale = prices{}
 	}
+	a.syncTime()
 }
 
 // chartInput pans on a drag and zooms on the wheel, around the pointer; a
@@ -465,7 +509,7 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 		}
 		a.drag, a.dragX, a.dragY, a.dragPane = dragChart, ev.X, ev.Y, 0
 		if pn, ok := a.paneAt(ev.Y); ok {
-			a.dragPane = a.set.Indicators[pn.idx].ID
+			a.dragPane = a.indicators[pn.idx].ID
 		}
 		if onAxis {
 			a.drag = dragAxis

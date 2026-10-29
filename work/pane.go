@@ -39,9 +39,9 @@ type paneView struct {
 // a short window) shrink alike.
 func (a *application) layout(h float32) (mainH float32, panes []paneBox) {
 	var want float32
-	for i := range a.set.Indicators {
-		if k, ok := kindOf(a.set.Indicators[i].Kind); ok && k.pane {
-			want += float32(a.set.Indicators[i].Height) * h
+	for i := range a.indicators {
+		if k, ok := kindOf(a.indicators[i].Kind); ok && k.pane {
+			want += float32(a.indicators[i].Height) * h
 			panes = append(panes, paneBox{idx: i})
 		}
 	}
@@ -54,7 +54,7 @@ func (a *application) layout(h float32) (mainH float32, panes []paneBox) {
 	}
 	y := h
 	for i := len(panes) - 1; i >= 0; i-- {
-		ph := float32(a.set.Indicators[panes[i].idx].Height) * h * f
+		ph := float32(a.indicators[panes[i].idx].Height) * h * f
 		y -= ph
 		panes[i].y, panes[i].h = y, ph
 	}
@@ -102,7 +102,7 @@ func (a *application) moveSep(i int, y float32) {
 		return
 	}
 	for _, pn := range panes { // as laid out, should they have shrunk alike
-		a.set.Indicators[pn.idx].Height = float64(pn.h / h)
+		a.indicators[pn.idx].Height = float64(pn.h / h)
 	}
 	top, least := float32(0), float32(minMainH)
 	if i > 0 {
@@ -111,9 +111,9 @@ func (a *application) moveSep(i int, y float32) {
 	bottom := panes[i].y + panes[i].h
 	y = min(max(y, top+least), bottom-minPaneH)
 	if i > 0 {
-		a.set.Indicators[panes[i-1].idx].Height = float64((y - top) / h)
+		a.indicators[panes[i-1].idx].Height = float64((y - top) / h)
 	}
-	a.set.Indicators[panes[i].idx].Height = float64((bottom - y) / h)
+	a.indicators[panes[i].idx].Height = float64((bottom - y) / h)
 }
 
 // paneInput drags the lines between panes, and scales a pane's prices on
@@ -134,7 +134,7 @@ func (a *application) paneInput(ev ui.InputEvent) bool {
 		if !ok || ev.X <= a.plotW {
 			return false
 		}
-		id := a.set.Indicators[pn.idx].ID
+		id := a.indicators[pn.idx].ID
 		pv := a.paneView(id)
 		switch {
 		case ev.Kind == ui.InputScroll:
@@ -259,8 +259,8 @@ func (a *application) valueText(k *indKind, v float64) string {
 
 // overlays calls fn with every indicator drawn over the candles and shown.
 func (a *application) overlays(fn func(ind *indicator, k *indKind, s *series)) {
-	for i := range a.set.Indicators {
-		ind := &a.set.Indicators[i]
+	for i := range a.indicators {
+		ind := &a.indicators[i]
 		if k, ok := kindOf(ind.Kind); ok && !k.pane && !ind.Hidden {
 			fn(ind, k, a.seriesFor(ind))
 		}

@@ -40,7 +40,7 @@ func TestLoadSettingsKeepsNewDefaults(t *testing.T) {
 	dir := t.TempDir()
 	old := filepath.Join(dir, "old.json")
 	os.WriteFile(old, []byte(`{"Symbol":"ETHUSDT","Interval":"4h","Watch":["ETHUSDT"]}`), 0o644)
-	if s := loadSettings(old); s.Chart != defaultStyle() || s.Symbol != "ETHUSDT" {
+	if s := loadSettings(old); s.Chart != defaultStyle() || s.Charts[0].Symbol != "ETHUSDT" {
 		t.Fatalf("old file: %+v", s)
 	}
 	some := filepath.Join(dir, "some.json")

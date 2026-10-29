@@ -39,9 +39,9 @@ func write(t *testing.T, path, src string) {
 }
 
 func findInd(a *application, kind string) *indicator {
-	for i := range a.set.Indicators {
-		if a.set.Indicators[i].Kind == kind {
-			return &a.set.Indicators[i]
+	for i := range a.indicators {
+		if a.indicators[i].Kind == kind {
+			return &a.indicators[i]
 		}
 	}
 	return nil
@@ -62,7 +62,7 @@ func TestScriptsFromTheFolder(t *testing.T) {
 	a.takeScripts(files, false)
 	ind := findInd(a, "pine:双均线")
 	if ind == nil {
-		t.Fatalf("not on the chart: %+v", a.set.Indicators)
+		t.Fatalf("not on the chart: %+v", a.indicators)
 	}
 	if len(a.notices) != 1 || !strings.Contains(a.notices[0].text, "双均线交叉") {
 		t.Fatalf("notices %+v", a.notices)
@@ -121,8 +121,8 @@ func TestScriptsFromTheFolder(t *testing.T) {
 	if got, want := a.seriesFor(ind).at(0, len(a.bars)-1), smaOf(a, 5); abs64(got-want) > 1e-6 {
 		t.Fatalf("worked out %v after the change, want the SMA %v", got, want)
 	}
-	if len(a.set.Indicators) != 1 {
-		t.Fatalf("a change added it again: %+v", a.set.Indicators)
+	if len(a.indicators) != 1 {
+		t.Fatalf("a change added it again: %+v", a.indicators)
 	}
 
 	// Gone, then back.
@@ -140,8 +140,8 @@ func TestScriptsFromTheFolder(t *testing.T) {
 	os.Rename(filepath.Join(dir, "双均线.txt"), filepath.Join(dir, "双均线.pine"))
 	files, _ = readScripts(dir, files)
 	a.takeScripts(files, false)
-	if ind = findInd(a, "pine:双均线"); ind == nil || ind.Params[0] != 5 || len(a.set.Indicators) != 1 {
-		t.Fatalf("back: %+v", a.set.Indicators)
+	if ind = findInd(a, "pine:双均线"); ind == nil || ind.Params[0] != 5 || len(a.indicators) != 1 {
+		t.Fatalf("back: %+v", a.indicators)
 	}
 }
 
@@ -164,8 +164,8 @@ func TestManyScriptsAreOnlyListed(t *testing.T) {
 	}
 	files, _ = readScripts(dir, files)
 	a.takeScripts(files, false)
-	if len(a.set.Indicators) != 0 || len(customList()) != 4 || !strings.Contains(a.notices[0].text, "4 个指标") {
-		t.Fatalf("indicators %+v, notices %+v", a.set.Indicators, a.notices)
+	if len(a.indicators) != 0 || len(customList()) != 4 || !strings.Contains(a.notices[0].text, "4 个指标") {
+		t.Fatalf("indicators %+v, notices %+v", a.indicators, a.notices)
 	}
 }
 
@@ -181,8 +181,8 @@ func TestFolderAtStart(t *testing.T) {
 	writeReadme(a.indDir)
 	files, _ := readScripts(a.indDir, nil)
 	a.takeScripts(files, true)
-	if len(a.set.Indicators) != 0 || len(a.notices) != 0 || customs["pine:双均线"] == nil {
-		t.Fatalf("at the start: %+v %+v", a.set.Indicators, a.notices)
+	if len(a.indicators) != 0 || len(a.notices) != 0 || customs["pine:双均线"] == nil {
+		t.Fatalf("at the start: %+v %+v", a.indicators, a.notices)
 	}
 	data, err := os.ReadFile(filepath.Join(a.indDir, "README.md"))
 	if err != nil || !strings.Contains(string(data), "_status.json") || !strings.Contains(string(data), readmeVersion) {
@@ -209,7 +209,7 @@ func TestImportFromTheClipboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if findInd(a, "pine:双均线交叉") == nil {
-		t.Fatalf("indicators %+v", a.set.Indicators)
+		t.Fatalf("indicators %+v", a.indicators)
 	}
 	a.importClipboard() // again: a file of its own
 	if _, err := os.Stat(filepath.Join(dir, "双均线交叉 2.pine")); err != nil {
@@ -257,7 +257,7 @@ func TestEditorMakesAScript(t *testing.T) {
 	}
 	ind := findInd(a, "pine:我的 RSI")
 	if k, _ := kindOf("pine:我的 RSI"); ind == nil || !k.pane {
-		t.Fatalf("on the chart: %+v", a.set.Indicators)
+		t.Fatalf("on the chart: %+v", a.indicators)
 	}
 	tt.Frame()
 	if _, ok := tt.Find("我的 RSI"); !ok {
@@ -301,7 +301,7 @@ func TestEditorAsksBeforeLosingWork(t *testing.T) {
 		t.Fatal("deleted at the first click")
 	}
 	click(t, tt, "删除指标")
-	if trashed != filepath.Join(dir, "双均线.pine") || a.ed != nil || len(a.set.Indicators) != 0 || customs["pine:双均线"] != nil {
-		t.Fatalf("trashed %q, editor %v, indicators %+v", trashed, a.ed != nil, a.set.Indicators)
+	if trashed != filepath.Join(dir, "双均线.pine") || a.ed != nil || len(a.indicators) != 0 || customs["pine:双均线"] != nil {
+		t.Fatalf("trashed %q, editor %v, indicators %+v", trashed, a.ed != nil, a.indicators)
 	}
 }

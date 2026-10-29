@@ -71,12 +71,15 @@ func (in Instrument) trading(t time.Time) bool {
 // after a request fails Candle stops asking for a while, a minute at first,
 // doubling to a quarter of an hour, and asks again once that is over; one
 // that comes through ends the rest. The search, on another server, is apart.
+// Requests go out eastGap apart at least, so that eight charts of A shares
+// opening at once, or following their bars, do not ask all together.
 // eastNow is the clock pace goes by.
 var eastNow = time.Now
 
 var (
 	eastRest    = time.Minute
 	eastRestMax = 15 * time.Minute
+	eastGap     = 200 * time.Millisecond
 	eastGates   sync.Map // by the prices' base URL: *eastGate
 )
 
@@ -88,18 +91,35 @@ type eastGate struct {
 	mu    sync.Mutex
 	until time.Time
 	wait  time.Duration
+	next  time.Time // when the next request may go
 }
 
-// fetch gets base+path unless Candle rests from Eastmoney, and rests after
-// a request that fails (not one ctx ended).
+// fetch gets base+path unless Candle rests from Eastmoney, eastGap after
+// the request before at least, and rests after a request that fails (not
+// one ctx ended).
 func (e Eastmoney) fetch(ctx context.Context, base, path string) ([]byte, error) {
 	v, _ := eastGates.LoadOrStore(e.push(), &eastGate{})
 	g := v.(*eastGate)
 	g.mu.Lock()
-	resting := time.Now().Before(g.until)
+	now := time.Now()
+	resting := now.Before(g.until)
+	at := now
+	if g.next.After(now) {
+		at = g.next
+	}
+	if !resting {
+		g.next = at.Add(eastGap)
+	}
 	g.mu.Unlock()
 	if resting {
 		return nil, ErrEastmoneyResting
+	}
+	if d := at.Sub(now); d > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(d):
+		}
 	}
 	body, err := get(ctx, e.HTTP, base+path)
 	g.mu.Lock()

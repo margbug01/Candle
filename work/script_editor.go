@@ -157,7 +157,7 @@ func itoa(n int) string { return strconv.Itoa(n) }
 func (a *application) editorButtons(c *ui.Context, t *ui.Theme, k palette, ed *scriptEditor) {
 	kind := customs[ed.key]
 	onChart := false
-	for _, ind := range a.set.Indicators {
+	for _, ind := range a.indicators { // the active chart's: 保存并加到图上 adds it there
 		onChart = onChart || ind.Kind == ed.key && ed.key != ""
 	}
 	armed := func(what string) bool { return ed.arming == what && time.Since(ed.armed) < 4*time.Second }

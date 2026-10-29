@@ -46,10 +46,11 @@ func (a *application) favSize() (float32, float32) {
 	return 8 + favGrip + 2 + float32(len(a.set.FavTools))*(favButton+2) + 4, favButton + 8
 }
 
-// favRoom is how far across and down the chart the bar's top left can go.
+// favRoom is how far across and down the charts the bar's top left can go:
+// off the price axis and the time axis on the right and at the bottom.
 func (a *application) favRoom() (float32, float32) {
 	w, h := a.favSize()
-	return max(a.plotW-w, 0), max(a.boxH-timeH-h, 0)
+	return max(a.area.W-axisW-w, 0), max(a.area.H-timeH-h, 0)
 }
 
 // favAt is the bar's top left in the chart.
@@ -71,9 +72,27 @@ func (a *application) moveFav(dx, dy float32) {
 	}
 }
 
-// favBar floats over the chart while it is shown and has tools.
+// favShown is whether the bar shows: switched on, with tools, over the
+// active chart's bars.
+func (a *application) favShown() bool {
+	return a.set.FavBar && len(a.set.FavTools) > 0 && a.area.W > axisW && !a.hide && len(a.activeCell().bars) > 0
+}
+
+// favRect is the bar in the window, as the last frame laid the charts out;
+// empty while it does not show.
+func (a *application) favRect() ui.Rect {
+	if !a.favShown() {
+		return ui.Rect{}
+	}
+	x, y := a.favAt()
+	w, h := a.favSize()
+	return ui.Rect{X: a.area.X + x, Y: a.area.Y + y, W: w, H: h}
+}
+
+// favBar floats over the charts while it is shown and has tools, one bar
+// for them all.
 func (a *application) favBar(c *ui.Context, t *ui.Theme, k palette) {
-	if !a.set.FavBar || len(a.set.FavTools) == 0 || a.plotW <= 0 || a.hide {
+	if !a.favShown() {
 		return
 	}
 	x, y := a.favAt()
