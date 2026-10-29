@@ -56,6 +56,8 @@ type Instrument struct {
 	Tick   float64 // the smallest price step; 0 unknown
 	Future bool
 	Delay  time.Duration // how late Yahoo shows it
+	Alias  string        // other names it is found by: "英伟达"
+	Rank   int           // its place among the most looked up (Popular), 1 first, 0 none
 }
 
 // The CME contracts Candle offers. Yahoo has the micro contracts' own trades

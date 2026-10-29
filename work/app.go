@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -78,9 +80,17 @@ type application struct {
 	query     string
 	stopWatch context.CancelFunc
 	icons     icons                          // the coins' icons
-	usFound   map[string][]market.Instrument // Yahoo's answers for US stocks, by query
+	usFound   map[string][]market.Instrument // Yahoo's answers for US stocks, by query, until usList is in
 	usNames   map[string]string              // the stocks' names, from those answers
 	usAsking  string                         // the query being asked
+	usList    []market.Instrument            // the US stocks and ETFs, from Nasdaq's list
+	usByID    map[string]market.Instrument   // usList by ID
+	usLoading bool
+	usFailed  time.Time // when the list last did not come
+	usFetch   func(context.Context) ([]byte, error)
+	searchGen int // grows as what the search looks through changes
+	found     foundCache
+	priced    map[string]time.Time // when the results' prices were asked for
 
 	// The drawings: the tool in hand, the drawing being drawn and the point
 	// it is at, the one selected and the point of it being dragged.
@@ -135,7 +145,8 @@ type application struct {
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {
 	return &application{
 		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, post: post, file: file, set: set,
-		usFound: map[string][]market.Instrument{}, usNames: map[string]string{},
+		usFound: map[string][]market.Instrument{}, usNames: map[string]string{}, priced: map[string]time.Time{},
+		usFetch:   func(ctx context.Context) ([]byte, error) { return market.USList(ctx, bin.HTTP) },
 		spawn:     func(f func()) { go f() },
 		view:      defaultView(),
 		infos:     map[string]market.Symbol{},
@@ -164,6 +175,7 @@ func (a *application) start() {
 	a.open(a.set.Symbol, a.set.Interval)
 	a.watchQuotes()
 	a.loadAll()
+	a.loadUS()
 	a.loadIcons(false)
 	a.spawn(a.syncClock)
 	a.watchUpdates()
@@ -397,22 +409,84 @@ func (a *application) follow(ctx context.Context, feed market.Feed, list []strin
 }
 
 // findings are what the search shows for query: Binance's pairs, the
-// futures, and the US stocks Yahoo has answered with so far.
+// futures and the US stocks. Asked every frame, it searches once a query.
 func (a *application) findings(query string, limit int) []market.Ticker {
-	return searchAll(query, a.all, market.Futures, a.usFound[strings.TrimSpace(query)], limit)
+	q := strings.TrimSpace(query)
+	f := &a.found
+	if f.q != q || f.gen != a.searchGen || f.limit != limit {
+		*f = foundCache{q: q, gen: a.searchGen, limit: limit, hits: searchAll(q, a.all, market.Futures, a.stocksFor(q), limit)}
+	}
+	return f.hits
+}
+
+// stocksFor is the US stocks the search looks through: Nasdaq's list, or
+// until it is in, the popular ones and what Yahoo found for q.
+func (a *application) stocksFor(q string) []market.Instrument {
+	if a.usList != nil {
+		return a.usList
+	}
+	return market.WithPopular(slices.Clone(a.usFound[q]))
+}
+
+// loadUS reads the list of US stocks from the cache folder or, a week old or
+// missing, from Nasdaq, keeping the old one if Nasdaq does not answer.
+func (a *application) loadUS() {
+	if a.usList != nil || a.usLoading || time.Since(a.usFailed) < iconRetry {
+		return
+	}
+	a.usLoading = true
+	file, fetch := "", a.usFetch
+	if a.icons.dir != "" {
+		file = filepath.Join(a.icons.dir, "us-symbols.txt")
+	}
+	a.spawn(func() {
+		var list []market.Instrument
+		fresh := false
+		if fi, err := os.Stat(file); file != "" && err == nil {
+			if data, err := os.ReadFile(file); err == nil {
+				list, _ = market.ParseUSList(data)
+				fresh = list != nil && time.Since(fi.ModTime()) < iconListAge
+			}
+		}
+		if !fresh {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			data, err := fetch(ctx)
+			cancel()
+			if err == nil {
+				if got, err := market.ParseUSList(data); err == nil {
+					list = got
+					if file != "" {
+						writeFile(file, data)
+					}
+				}
+			}
+		}
+		byID := map[string]market.Instrument{}
+		for _, in := range list {
+			byID[in.ID] = in
+		}
+		a.post(func() {
+			a.usLoading = false
+			if list == nil {
+				a.usFailed = time.Now()
+				return
+			}
+			a.usList, a.usByID = list, byID
+			a.searchGen++
+		})
+	})
 }
 
 // searchUS asks Yahoo for the US stocks query names, a moment after the
-// typing stops, and the prices of what it finds and of the futures the
-// query names. Answers are kept by query.
+// typing stops, while Nasdaq's list is not in. Answers are kept by query.
 func (a *application) searchUS(query string) {
 	q := strings.TrimSpace(query)
-	if q == "" || a.usFound[q] != nil || a.usAsking == q {
+	if q == "" || a.usList != nil || a.usFound[q] != nil || a.usAsking == q {
 		return
 	}
 	a.usAsking = q
 	a.spawn(func() {
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 		a.post(func() {
 			if strings.TrimSpace(a.query) != q { // typed on: that query asks
 				if a.usAsking == q {
@@ -424,14 +498,6 @@ func (a *application) searchUS(query string) {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 				found, err := a.yahoo.Search(ctx, q)
-				var ids []string
-				for _, t := range searchAll(q, nil, market.Futures, found, 20) {
-					ids = append(ids, t.Symbol)
-				}
-				var quotes []market.Ticker
-				if len(ids) > 0 {
-					quotes, _ = a.yahoo.Quotes(ctx, ids)
-				}
 				a.post(func() {
 					if a.usAsking == q {
 						a.usAsking = ""
@@ -446,14 +512,71 @@ func (a *application) searchUS(query string) {
 					for _, in := range found {
 						a.usNames[in.ID] = in.Name
 					}
-					for _, t := range quotes {
-						a.quotes[t.Symbol] = t
+					a.searchGen++
+				})
+			})
+		})
+	})
+}
+
+// priceHits asks Yahoo for the prices of the futures and stocks among the
+// first results that have none, a moment after the typing stops: the results
+// show at once, the prices a moment after.
+func (a *application) priceHits(q string, hits []market.Ticker) {
+	var ids []string
+	for _, h := range hits[:min(len(hits), 15)] {
+		if _, ok := a.quotes[h.Symbol]; !ok && market.IsYahoo(h.Symbol) && time.Since(a.priced[h.Symbol]) > 30*time.Second {
+			ids = append(ids, h.Symbol)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	for _, id := range ids {
+		a.priced[id] = time.Now()
+	}
+	a.spawn(func() {
+		time.Sleep(150 * time.Millisecond)
+		a.post(func() {
+			if strings.TrimSpace(a.query) != q { // typed on: ask for these again when they show
+				for _, id := range ids {
+					delete(a.priced, id)
+				}
+				return
+			}
+			a.spawn(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				got, _ := a.yahoo.Quotes(ctx, ids)
+				a.post(func() {
+					for _, t := range got {
+						if _, ok := a.quotes[t.Symbol]; !ok { // the watchlist's own are fresher
+							a.quotes[t.Symbol] = t
+						}
 					}
 				})
 			})
 		})
 	})
 }
+
+// foundCache is the search's last results, for the query, the generation of
+// what it looked through and how many it wanted.
+type foundCache struct {
+	q          string
+	gen, limit int
+	hits       []market.Ticker
+}
+
+// popularByID are the popular US markets by ID, for their names before
+// Nasdaq's list is in.
+var popularByID = func() map[string]market.Instrument {
+	m := map[string]market.Instrument{}
+	for _, in := range market.PopularOnly() {
+		m[in.ID] = in
+	}
+	return m
+}()
 
 // feedOf is where sym's bars come from: Yahoo for "CME:" and "US:" names,
 // Binance for the rest.
@@ -540,6 +663,7 @@ func (a *application) loadAll() {
 				return
 			}
 			a.all, a.allState = all, 2
+			a.searchGen++
 		})
 	})
 }
@@ -632,8 +756,18 @@ func (a *application) after(sym string) string {
 	if !market.IsYahoo(sym) {
 		return suffix(quote)
 	}
+	in, ok := a.usByID[sym]
+	if !ok {
+		in = popularByID[sym]
+	}
+	if zh, _, _ := strings.Cut(in.Alias, " "); zh != "" { // 英伟达, as the futures read in Chinese
+		return " " + zh
+	}
 	if s, ok := a.infos[sym]; ok && s.Desc != "" {
 		return " " + s.Desc
+	}
+	if in.Name != "" {
+		return " " + in.Name
 	}
 	if n := a.usNames[sym]; n != "" {
 		return " " + n

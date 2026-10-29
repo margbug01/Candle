@@ -558,6 +558,7 @@ func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 	note := func(s string) { ui.Text(c, s).FontSize(12).TextColor(t.TextMuted).Padding(4, 12) }
 	q := strings.TrimSpace(a.query)
+	a.loadUS() // asked again a while after it did not come
 	a.searchUS(q)
 	if a.allState == 3 {
 		ui.Row(c).Padding(4, 12).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -577,6 +578,7 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 		}
 		return
 	}
+	a.priceHits(q, hits)
 	header(c, t, "搜索结果")
 	ui.Scroll(c.Key("results")).Grow(1).FillWidth().MinHeight(0).Children(func() {
 		for _, h := range hits {

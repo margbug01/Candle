@@ -401,16 +401,20 @@ func dayBreaks(bars []market.Bar, from, to int, ivMs int64, dayOf func(int64) in
 }
 
 // searchAll finds markets of every source by name: Binance's pairs, the
-// CME futures and the US stocks Yahoo found for the query. The code itself
-// (BTC for BTCUSDT) comes first, then codes starting with the query, then
-// codes holding it, then names holding it; on a par, pairs before futures
-// before stocks, USDT pairs before others, busiest first.
+// CME futures and the US stocks. The code itself (BTC for BTCUSDT) comes
+// first, then codes starting with the query, then those holding it or a
+// Chinese name holding it (纳指, 苹果), then names starting with it (apple:
+// Apple Inc.), then names with another word starting with it. On a par, pairs before
+// futures before stocks; USDT pairs before others, busiest first; the stocks
+// looked up most first, then the shortest codes.
 func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Instrument, limit int) []market.Ticker {
 	norm := strings.NewReplacer("/", "", "-", "", " ", "")
 	q := strings.ToUpper(norm.Replace(query))
 	if q == "" {
 		return nil
 	}
+	words := strings.ToUpper(strings.Join(strings.Fields(query), " "))
+	cjk := strings.ContainsFunc(q, func(r rune) bool { return r >= 0x2e80 })
 	rankOf := func(code string) int {
 		code = strings.ToUpper(norm.Replace(code))
 		switch {
@@ -423,9 +427,42 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 		}
 		return -1
 	}
+	// A future's or a stock's: by its code, its Chinese names, its name.
+	marketRank := func(in market.Instrument, zh string) int {
+		r := rankOf(in.Code)
+		for _, a := range strings.Fields(zh) {
+			a = strings.ToUpper(a)
+			switch {
+			case a == q:
+				return 0
+			// A Chinese query anywhere in the name (三倍做多纳指), a Latin one
+			// only at its start, or "a" would find Meta.
+			case (strings.HasPrefix(a, q) || cjk && strings.Contains(a, q)) && (r < 0 || r > 1):
+				r = 1
+			}
+		}
+		if r >= 0 || in.Future {
+			return r
+		}
+		// A word of the name starting with it: the first word, then another.
+		name := strings.ToUpper(in.Name)
+		for at := 0; ; {
+			i := strings.Index(name[at:], words)
+			if i < 0 {
+				return -1
+			}
+			if i += at; i == 0 {
+				return 3
+			}
+			if !isAlnum(name[i-1]) {
+				return 4
+			}
+			at = i + 1
+		}
+	}
 	type hit struct {
-		t          market.Ticker
-		rank, from int
+		t                   market.Ticker
+		rank, from, pop, at int
 	}
 	var hits []hit
 	for _, t := range pairs {
@@ -439,27 +476,35 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 		if !strings.HasSuffix(t.Symbol, "USDT") {
 			r += 2
 		}
-		hits = append(hits, hit{t, r, 0})
+		hits = append(hits, hit{t: t, rank: r})
 	}
-	for k, list := range [][]market.Instrument{futures, stocks} {
-		for _, in := range list {
-			r := rankOf(in.Code)
-			if r < 0 && (k == 1 || strings.Contains(strings.ToUpper(in.Name), strings.ToUpper(strings.TrimSpace(query)))) {
-				r = 3 // Yahoo found a stock by its name
+	for i, in := range futures {
+		if r := marketRank(in, in.Name+" "+in.Alias); r >= 0 {
+			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 1, at: i})
+		}
+	}
+	for _, in := range stocks {
+		if r := marketRank(in, in.Alias); r >= 0 {
+			pop := in.Rank
+			if pop == 0 {
+				pop = math.MaxInt
 			}
-			if r >= 0 {
-				hits = append(hits, hit{market.Ticker{Symbol: in.ID}, r, k + 1})
-			}
+			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 2, pop: pop, at: len(in.Code)})
 		}
 	}
 	slices.SortStableFunc(hits, func(a, b hit) int {
-		return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.from, b.from), cmp.Compare(b.t.QuoteVolume, a.t.QuoteVolume))
+		return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.from, b.from), cmp.Compare(b.t.QuoteVolume, a.t.QuoteVolume),
+			cmp.Compare(a.pop, b.pop), cmp.Compare(a.at, b.at), strings.Compare(a.t.Symbol, b.t.Symbol))
 	})
 	out := make([]market.Ticker, 0, min(len(hits), limit))
 	for _, h := range hits[:min(len(hits), limit)] {
 		out = append(out, h.t)
 	}
 	return out
+}
+
+func isAlnum(b byte) bool {
+	return b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z'
 }
 
 // midnights is dayOf for days beginning at midnight in loc.

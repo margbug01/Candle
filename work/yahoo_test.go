@@ -11,10 +11,20 @@ import (
 )
 
 // The search finds every source's markets: a coin's pair before a stock of
-// the same code, futures by code or Chinese name, stocks by what Yahoo found.
+// the same code, futures by code or Chinese name, stocks by code, Chinese
+// name or a word of their name, the popular first.
 func TestSearchAll(t *testing.T) {
 	pairs := []market.Ticker{{Symbol: "BTCUSDT", QuoteVolume: 9e9}, {Symbol: "WBTCUSDT", QuoteVolume: 1e8}, {Symbol: "ESUSDT", QuoteVolume: 1e6}}
-	stocks := []market.Instrument{{ID: "US:BTC", Code: "BTC", Name: "Grayscale Bitcoin Mini Trust"}, {ID: "US:AAPL", Code: "AAPL", Name: "Apple Inc."}}
+	stocks := market.WithPopular([]market.Instrument{
+		{ID: "US:BTC", Code: "BTC", Name: "Grayscale Bitcoin Mini Trust"},
+		{ID: "US:APLE", Code: "APLE", Name: "Apple Hospitality REIT, Inc."},
+		{ID: "US:AAPL", Code: "AAPL", Name: "Apple Inc."},
+		{ID: "US:AAPY", Code: "AAPY", Name: "Kurv Yield Premium Strategy Apple (AAPL) ETF"},
+		{ID: "US:SNAP", Code: "SNAP", Name: "Snap Inc."},
+		{ID: "US:A", Code: "A", Name: "Agilent Technologies, Inc."},
+		{ID: "US:AA", Code: "AA", Name: "Alcoa Corporation"},
+		{ID: "US:QQQ", Code: "QQQ", Name: "Invesco QQQ Trust, Series 1"},
+	})
 	ids := func(ts []market.Ticker) (s []string) {
 		for _, t := range ts {
 			s = append(s, t.Symbol)
@@ -23,16 +33,26 @@ func TestSearchAll(t *testing.T) {
 	}
 	for _, c := range []struct {
 		q    string
+		n    int
 		want []string
 	}{
-		{"btc", []string{"BTCUSDT", "US:BTC", "WBTCUSDT", "US:AAPL"}},
-		{"nq", []string{"CME:NQ", "CME:MNQ", "US:BTC", "US:AAPL"}},
-		{"MNQ", []string{"CME:MNQ", "US:BTC", "US:AAPL"}},
-		{"es", []string{"ESUSDT", "CME:ES", "CME:MES", "US:BTC", "US:AAPL"}},
-		{"纳指", []string{"CME:NQ", "CME:MNQ", "US:BTC", "US:AAPL"}},
-		{"", nil},
+		{"btc", 10, []string{"BTCUSDT", "US:BTC", "WBTCUSDT"}},
+		{"nq", 10, []string{"CME:NQ", "CME:MNQ"}},
+		{"MNQ", 10, []string{"CME:MNQ"}},
+		{"es", 10, []string{"ESUSDT", "CME:ES", "CME:MES", "US:NTES"}}, // not SERIES nor TechnologiES
+		{"纳指", 10, []string{"CME:NQ", "CME:MNQ", "US:QQQ", "US:TQQQ", "US:SQQQ"}},
+		{"苹果", 10, []string{"US:AAPL"}},
+		{"阿里", 10, []string{"US:BABA"}},
+		// Apple Inc. and Apple Hospitality start with the word, the popular
+		// first; the ETF holds it further in.
+		{"apple", 10, []string{"US:AAPL", "US:APLE", "US:AAPY"}},
+		{"aapl", 10, []string{"US:AAPL", "US:AAPY"}},
+		// Of the codes starting with A, the popular, then the shortest.
+		{"a", 6, []string{"US:A", "US:AAPL", "US:AMZN", "US:AMD", "US:AVGO", "US:ARM"}},
+		{"snap", 10, []string{"US:SNAP"}},
+		{"", 10, nil},
 	} {
-		if got := ids(searchAll(c.q, pairs, market.Futures, stocks, 10)); !slices.Equal(got, c.want) {
+		if got := ids(searchAll(c.q, pairs, market.Futures, stocks, c.n)); !slices.Equal(got, c.want) {
 			t.Errorf("%q: %v, want %v", c.q, got, c.want)
 		}
 	}
@@ -146,7 +166,7 @@ func TestSearchFindsStocksAndFutures(t *testing.T) {
 	a.query = "apple"
 	tt.Frame()
 	tt.Frame()
-	if !tt.HasText(" Apple Inc.") || !tt.HasText("-0.94%") || !tt.HasText("343.83") {
+	if !tt.HasText(" 苹果") || !tt.HasText("-0.94%") || !tt.HasText("343.83") {
 		t.Fatal("Apple is not in the results with its move")
 	}
 	shot(t, tt, "search-stock")
