@@ -1,7 +1,7 @@
 {
   "name": "Candle",
   "identifier": "dev.margbug.candle",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "out": "../outputs",
   "icon": "assets/icon-macos.png",
   "resources": ["../LICENSE", "../licenses"],
