@@ -89,6 +89,7 @@ type application struct {
 	usFailed  time.Time // when the list last did not come
 	usFetch   func(context.Context) ([]byte, error)
 	searchGen int // grows as what the search looks through changes
+	watchList ui.ListState
 	found     foundCache
 	priced    map[string]time.Time // when the results' prices were asked for
 
@@ -684,6 +685,10 @@ func (a *application) syncClock() {
 // pick shows sym and keeps it on the watchlist, at the top when it is new.
 func (a *application) pick(sym string) {
 	a.query = ""
+	if i := slices.Index(a.set.Folded, sectionOf(sym)); i >= 0 { // to show where it went
+		a.set.Folded = slices.Delete(slices.Clone(a.set.Folded), i, i+1)
+		a.save()
+	}
 	if !slices.Contains(a.set.Watch, sym) {
 		a.set.Watch = slices.Insert(slices.Clone(a.set.Watch), 0, sym)
 		a.save()

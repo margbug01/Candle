@@ -499,25 +499,7 @@ func (a *application) watchlist(c *ui.Context, t *ui.Theme, k palette) {
 			return
 		}
 		header(c, t, "自选")
-		var drop string
-		ui.Scroll(c.Key("watch")).Grow(1).FillWidth().MinHeight(0).Children(func() {
-			for _, sym := range a.set.Watch {
-				q, ok := a.quotes[sym]
-				open, remove := a.quoteRow(c, t, k, sym, q, ok, true)
-				switch {
-				case remove:
-					drop = sym
-				case open && sym != a.symbol:
-					a.open(sym, a.interval)
-				}
-			}
-			if len(a.set.Watch) == 0 {
-				ui.Text(c, "在上面搜索币、期货或美股，点一下就会加进来").FontSize(12).TextColor(t.TextMuted).Padding(12)
-			}
-		})
-		if drop != "" {
-			a.unwatch(drop)
-		}
+		a.watchlistRows(c, t, k)
 	})
 }
 
@@ -599,7 +581,8 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 // quoteRow is one market: name, last price and move over 24 hours, and, on
 // hover, a button taking it off the watchlist.
 func (a *application) quoteRow(c *ui.Context, t *ui.Theme, k palette, sym string, q market.Ticker, hasQ, removable bool) (open, remove bool) {
-	row := ui.Row(c.Key("row-"+sym)).FillWidth().Height(40).Shrink(0).Padding(0, 6, 0, 12).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	base, _ := a.names(sym)
+	row := ui.Row(c.Key("row-"+sym)).FillWidth().Height(40).Shrink(0).Padding(0, 6, 0, 12).Gap(6).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(base + a.after(sym))
 	hovered := row.Hovered()
 	switch {
 	case sym == a.symbol:
@@ -608,7 +591,6 @@ func (a *application) quoteRow(c *ui.Context, t *ui.Theme, k palette, sym string
 		row.Background(k.hover)
 	}
 	row.Children(func() {
-		base, _ := a.names(sym)
 		ui.Row(c).Grow(1).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
 			a.symIcon(c, sym, 20)
 			ui.RichText(c, ui.Span{Text: base, Size: 13, Weight: 600}, ui.Span{Text: a.after(sym), Size: 11, Color: t.TextMuted}).

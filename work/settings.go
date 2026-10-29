@@ -21,6 +21,10 @@ type settings struct {
 	// FuturesRTH shows futures' intraday bars in the regular trading hours
 	// only (RTH), not the whole electronic session (ETH).
 	FuturesRTH bool `json:",omitempty"`
+	// Sections are the watchlist's sections in the order they show, by key
+	// (crypto, futures, us); Folded those folded away.
+	Sections []string `json:",omitempty"`
+	Folded   []string `json:",omitempty"`
 }
 
 func defaultSettings() settings {
