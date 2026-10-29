@@ -374,8 +374,11 @@ func TestSearchAsksEastmoney(t *testing.T) {
 	if got := asks(); !slices.Equal(got, []string{"测试科技"}) {
 		t.Fatalf("asked %q", got)
 	}
-	if hits := a.findings("测试科技", 5); len(hits) != 1 || hits[0].Symbol != "US:ZTST" || !tt.HasText(" 测试科技") || a.after("US:ZTST") != " 测试科技" {
-		t.Fatalf("found %v, shown %v, %q", hits, tt.HasText(" 测试科技"), a.after("US:ZTST"))
+	// The A share Eastmoney found too, by what its name does not show, last
+	// and under its own heading.
+	if hits := a.findings("测试科技", 5); len(hits) != 2 || hits[0].Symbol != "US:ZTST" || hits[1].Symbol != "SSE:600000" ||
+		!tt.HasText(" 测试科技") || a.after("US:ZTST") != " 测试科技" || !tt.HasText(" 浦发银行") || !tt.HasText("A股") {
+		t.Fatalf("found %v, shown %v %v %v, %q", hits, tt.HasText(" 测试科技"), tt.HasText(" 浦发银行"), tt.HasText("A股"), a.after("US:ZTST"))
 	}
 	a.query = "ztst"
 	tt.Frame()

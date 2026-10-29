@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -19,8 +21,11 @@ import (
 // The token is the site's own, the same for everyone. It answers from China
 // without a proxy, in a tenth of a second.
 type Eastmoney struct {
-	HTTP *http.Client
-	Base string // "" Eastmoney's
+	HTTP  *http.Client
+	Base  string        // the search's; "" Eastmoney's
+	His   string        // the bars'; "" Eastmoney's
+	Push  string        // the prices'; "" Eastmoney's
+	Every time.Duration // how often Stream and Watch ask again; 0, every 5 seconds
 }
 
 const (
@@ -92,6 +97,46 @@ func USStocks(s []Suggestion) []Instrument {
 			in.Alias = x.Name
 		} else {
 			in.Name = x.Name
+		}
+		out = append(out, in)
+	}
+	return out
+}
+
+// Found are the markets among s Candle has, as it names them, in s's
+// order, with the Chinese names Eastmoney gives them as Alias: US stocks,
+// Shanghai's and Shenzhen's A shares and indices, Hong Kong's and Korea's
+// shares, and the indices of Indices (恒生指数).
+func Found(s []Suggestion) []Instrument {
+	var out []Instrument
+	for _, x := range s {
+		var in Instrument
+		ok := false
+		switch x.Market {
+		case 105, 106, 107:
+			if us := USStocks([]Suggestion{x}); len(us) == 1 {
+				out = append(out, us[0])
+			}
+			continue
+		case 1:
+			in, ok = listedOf("SSE:" + x.Code)
+		case 0:
+			in, ok = listedOf("SZSE:" + x.Code)
+		case 116:
+			in, ok = listedOf("HKEX:" + x.Code)
+		case 177:
+			in, ok = listedOf("KRX:" + x.Code)
+		default:
+			secid := strconv.Itoa(x.Market) + "." + x.Code
+			if i := slices.IndexFunc(Indices, func(in Instrument) bool { return in.Ticker == secid }); i >= 0 {
+				in, ok = Indices[i], true
+			}
+		}
+		if !ok {
+			continue
+		}
+		if HasHan(x.Name) {
+			in.Alias = x.Name
 		}
 		out = append(out, in)
 	}

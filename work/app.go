@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -461,7 +462,7 @@ func (a *application) foundFor(query string) *foundCache {
 	f := &a.found
 	if !f.done || f.q != q || f.gen != a.searchGen {
 		pairs := append(slices.Clip(a.all), a.perps...)
-		hits := searchAll(q, pairs, market.Futures, a.stocksFor(q), a.zhFound[q], math.MaxInt)
+		hits := searchAll(q, pairs, localMarkets, a.stocksFor(q), a.zhFound[q], math.MaxInt)
 		*f = foundCache{done: true, q: q, gen: a.searchGen, hits: hits, groups: groupHits(hits)}
 	}
 	return f
@@ -578,12 +579,14 @@ func (a *application) searchUS(query string) {
 	})
 }
 
-// searchZh asks Eastmoney's search for the US stocks a query in Chinese
-// names (闪迪, 海力士), a moment after the typing stops. Answers are kept by
-// query; one that did not come is asked again when the query comes back.
+// searchZh asks Eastmoney's search for the stocks a query in Chinese names
+// (闪迪, 海力士, 国电电力) or digits (600795, 00700) finds, US stocks, A
+// shares, Hong Kong's and Korea's, a moment after the typing stops. Answers
+// are kept by query; one that did not come is asked again when the query
+// comes back.
 func (a *application) searchZh(query string) {
 	q := strings.TrimSpace(query)
-	if !market.HasHan(q) || a.zhFound[q] != nil || a.zhAsking == q {
+	if !market.HasHan(q) && !codeQuery(q) || a.zhFound[q] != nil || a.zhAsking == q {
 		return
 	}
 	a.zhAsking = q
@@ -610,7 +613,7 @@ func (a *application) searchZh(query string) {
 					if len(a.zhFound) > 200 {
 						clear(a.zhFound)
 					}
-					found := append([]market.Instrument{}, market.USStocks(got)...)
+					found := append([]market.Instrument{}, market.Found(got)...)
 					a.zhFound[q] = found
 					for _, in := range found {
 						if in.Alias != "" {
@@ -624,13 +627,19 @@ func (a *application) searchZh(query string) {
 	})
 }
 
-// priceHits asks Yahoo for the prices of the futures and stocks among the
-// first results that have none, a moment after the typing stops: the results
-// show at once, the prices a moment after.
+// codeQuery is whether q is a stock's code in digits, three or more: an A
+// share's 600795, Hong Kong's 00700.
+func codeQuery(q string) bool {
+	return len(q) >= 3 && !strings.ContainsFunc(q, func(r rune) bool { return r < '0' || r > '9' })
+}
+
+// priceHits asks Yahoo and Eastmoney for the prices of the futures, stocks
+// and indices among the first results that have none, a moment after the
+// typing stops: the results show at once, the prices a moment after.
 func (a *application) priceHits(q string, hits []market.Ticker) {
 	var ids []string
 	for _, h := range hits[:min(len(hits), 15)] {
-		if _, ok := a.quotes[h.Symbol]; !ok && market.IsYahoo(h.Symbol) && time.Since(a.priced[h.Symbol]) > 30*time.Second {
+		if _, ok := a.quotes[h.Symbol]; !ok && market.IsListed(h.Symbol) && time.Since(a.priced[h.Symbol]) > 30*time.Second {
 			ids = append(ids, h.Symbol)
 		}
 	}
@@ -652,7 +661,9 @@ func (a *application) priceHits(q string, hits []market.Ticker) {
 			a.spawn(func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
-				got, _ := a.yahoo.Quotes(ctx, ids)
+				got, _ := a.yahoo.Quotes(ctx, ids) // each takes its own
+				more, _ := a.east.Quotes(ctx, ids)
+				got = append(got, more...)
 				a.post(func() {
 					for _, t := range got {
 						if _, ok := a.quotes[t.Symbol]; !ok { // the watchlist's own are fresher
@@ -708,12 +719,20 @@ var popularByID = func() map[string]market.Instrument {
 	return m
 }()
 
-// feedOf is where sym's bars come from: Yahoo for "CME:" and "US:" names,
-// Binance for the rest.
+// localMarkets are the markets the search finds without asking anyone,
+// beside the pairs and the stocks: the futures and the indices, by code and
+// by Chinese name.
+var localMarkets = append(slices.Clip(market.Futures), market.Indices...)
+
+// feedOf is where sym's bars come from: Yahoo for futures, US and Korean
+// stocks and the VIX, Eastmoney for A shares and Hong Kong's, Binance for
+// the rest.
 func (a *application) feedOf(sym string) market.Feed {
 	switch {
 	case market.IsYahoo(sym):
 		return a.yahoo
+	case market.IsEastmoney(sym):
+		return a.east
 	case market.IsPerp(sym):
 		return a.perp
 	}
@@ -739,20 +758,22 @@ func (a *application) rth() bool {
 	return in.Future && a.set.FuturesRTH && a.intervalMs() < 86_400_000
 }
 
-// byFeed splits names into Binance's and Yahoo's, keeping their order.
+// byFeed splits names by where they come from, keeping their order.
 func byFeed(names []string) (groups [][]string) {
-	var bin, perp, yahoo []string
+	var bin, perp, yahoo, east []string
 	for _, n := range names {
 		switch {
 		case market.IsYahoo(n):
 			yahoo = append(yahoo, n)
+		case market.IsEastmoney(n):
+			east = append(east, n)
 		case market.IsPerp(n):
 			perp = append(perp, n)
 		default:
 			bin = append(bin, n)
 		}
 	}
-	for _, g := range [][]string{bin, perp, yahoo} {
+	for _, g := range [][]string{bin, perp, yahoo, east} {
 		if len(g) > 0 {
 			groups = append(groups, g)
 		}
@@ -914,7 +935,7 @@ func (a *application) after(sym string) string {
 	if market.IsPerp(sym) {
 		return suffix(quote) + " " + a.perpKind(sym)
 	}
-	if !market.IsYahoo(sym) {
+	if !market.IsListed(sym) {
 		return suffix(quote)
 	}
 	in, ok := a.usByID[sym]
@@ -946,7 +967,7 @@ func (a *application) after(sym string) string {
 // opened, for the countdown: not for a stock's or a future's day, which
 // closes with its session.
 func (a *application) countsDown(ivMs int64) bool {
-	return !market.IsYahoo(a.symbol) || ivMs < 86_400_000
+	return !market.IsListed(a.symbol) || ivMs < 86_400_000
 }
 
 // delay is how late the market on the chart comes.
@@ -974,26 +995,46 @@ func (a *application) perpKind(sym string) string {
 	return "永续"
 }
 
-// venue is where sym trades, and how late its prices are, for the legend.
+// venue is where sym trades, and how late its prices are, for the legend:
+// 上交所, 港交所, Cboe · 晚 15 分钟.
 func venue(sym string) string {
 	in, ok := market.InstrumentOf(sym)
+	where := cmp.Or(in.Venue, "美股")
 	switch {
 	case !ok && market.IsPerp(sym):
 		return "币安永续"
 	case !ok:
 		return "Binance"
-	case in.Delay > 0:
-		return fmt.Sprintf("CME · 晚 %d 分钟", int(in.Delay.Minutes()))
+	case in.Future:
+		where = "CME"
 	}
-	return "美股"
+	if in.Delay > 0 {
+		return fmt.Sprintf("%s · 晚 %d 分钟", where, int(in.Delay.Minutes()))
+	}
+	return where
+}
+
+// lateWhat is what comes late, for the top bar's word on it.
+func lateWhat(sym string) string {
+	in, _ := market.InstrumentOf(sym)
+	switch {
+	case in.Future:
+		return "CME 期货"
+	case in.Index:
+		return in.Venue + " 指数"
+	}
+	return in.Venue + "股票"
 }
 
 // volumeUnit is what a bar's volume counts: coins, contracts or shares.
 func (a *application) volumeUnit(sym string) string {
 	base, _ := a.names(sym)
 	if in, ok := market.InstrumentOf(sym); ok {
-		if in.Future {
+		switch {
+		case in.Future:
 			return "手"
+		case in.Index:
+			return ""
 		}
 		return "股"
 	}

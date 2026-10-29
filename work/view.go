@@ -212,7 +212,7 @@ func (a *application) status(c *ui.Context, t *ui.Theme, k palette) {
 		ui.Text(c, text).FontSize(12).TextColor(t.TextMuted).SingleLine()
 	})
 	if d := a.delay(); d > 0 {
-		row.Tooltip(fmt.Sprintf("CME 期货的行情免费的都晚 %d 分钟：价格是交易所的真实成交，只是晚到", int(d.Minutes())))
+		row.Tooltip(fmt.Sprintf("%s的行情免费的都晚 %d 分钟：价格是交易所的真实成交，只是晚到", lateWhat(a.symbol), int(d.Minutes())))
 	}
 }
 
@@ -600,7 +600,7 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 			}
 			for _, h := range g.hits[:min(n, len(g.hits))] {
 				qt, hasQ := a.quotes[h.Symbol]
-				if !market.IsYahoo(h.Symbol) {
+				if !market.IsListed(h.Symbol) {
 					qt, hasQ = h, true // Binance's list has the day's move
 				}
 				if open, _ := a.quoteRow(c, t, k, h.Symbol, qt, hasQ, false); open {
@@ -616,7 +616,7 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 			note("正在问 Yahoo 美股…")
 		}
 		if a.zhAsking == q {
-			note("正在按中文名找美股…")
+			note("正在问东方财富…")
 		}
 	})
 	switch {

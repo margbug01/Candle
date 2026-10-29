@@ -77,11 +77,11 @@ func TestMoveWatch(t *testing.T) {
 func TestMoveSection(t *testing.T) {
 	a := mixedApp()
 	a.moveSection("us", "crypto")
-	if !slices.Equal(a.set.Sections, []string{"us", "crypto", "perp", "futures"}) {
+	if !slices.Equal(a.set.Sections, []string{"us", "crypto", "perp", "futures", "cn", "hk", "kr"}) {
 		t.Fatalf("us dropped on crypto: %v", a.set.Sections)
 	}
 	a.moveSection("us", "futures")
-	if !slices.Equal(a.set.Sections, []string{"crypto", "perp", "futures", "us"}) {
+	if !slices.Equal(a.set.Sections, []string{"crypto", "perp", "futures", "us", "cn", "hk", "kr"}) {
 		t.Fatalf("us dropped on futures: %v", a.set.Sections)
 	}
 }

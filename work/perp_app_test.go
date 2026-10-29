@@ -200,14 +200,16 @@ func TestSearchGroups(t *testing.T) {
 }
 
 // A section added since the order was kept goes after the one it follows at
-// first: the perpetuals after the coins.
+// first: the perpetuals after the coins, A shares after US stocks, Hong
+// Kong's and Korea's after them.
 func TestSectionOrderTakesNewSections(t *testing.T) {
 	a := testApp()
 	for _, c := range []struct{ kept, want []string }{
-		{nil, []string{"crypto", "perp", "futures", "us"}},
-		{[]string{"us", "crypto", "futures"}, []string{"us", "crypto", "perp", "futures"}},
-		{[]string{"futures", "us"}, []string{"crypto", "perp", "futures", "us"}},
-		{[]string{"perp", "us", "crypto", "futures"}, []string{"perp", "us", "crypto", "futures"}},
+		{nil, []string{"crypto", "perp", "futures", "us", "cn", "hk", "kr"}},
+		{[]string{"us", "crypto", "futures"}, []string{"us", "cn", "hk", "kr", "crypto", "perp", "futures"}},
+		{[]string{"futures", "us"}, []string{"crypto", "perp", "futures", "us", "cn", "hk", "kr"}},
+		{[]string{"perp", "us", "crypto", "futures"}, []string{"perp", "us", "cn", "hk", "kr", "crypto", "futures"}},
+		{[]string{"futures", "perp", "hk", "us", "crypto"}, []string{"futures", "perp", "hk", "kr", "us", "cn", "crypto"}},
 	} {
 		a.set.Sections = c.kept
 		var got []string

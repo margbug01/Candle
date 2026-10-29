@@ -181,7 +181,7 @@ func (a *application) symIcon(c *ui.Context, sym string, size float32) ui.Elemen
 			return logoDisc(c, b, size, a.icons.light[sym])
 		}
 		return letterDisc(c, base, size)
-	case market.IsYahoo(sym):
+	case market.IsListed(sym):
 		return letterDisc(c, base, size)
 	}
 	return a.coinIcon(c, iconCoin(base), size)

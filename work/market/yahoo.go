@@ -59,6 +59,12 @@ type Instrument struct {
 	Alias  string        // other names it is found by: "英伟达"
 	Pinyin string        // the pinyin of its Chinese names, a syllable a word: "ying wei da"
 	Rank   int           // its place among the most looked up (Popular), 1 first, 0 none
+	Index  bool          // an index (上证指数, VIX), found by its names as a future is
+	// Loc and Opens are its exchange's clock and when its day opens there,
+	// for the day lines and the 4-hour bars; nil, New York's at 9:30.
+	Loc   *time.Location
+	Opens time.Duration
+	Venue string // where it trades, for the legend: "上交所", "Cboe"; "", the CME's or New York's
 }
 
 // The CME contracts Candle offers. Yahoo has the micro contracts' own trades
@@ -80,8 +86,16 @@ func future(code, name, pinyin string, tick float64) Instrument {
 	return Instrument{ID: "CME:" + code, Code: code, Name: name, Pinyin: pinyin, Ticker: code + "=F", Tick: tick, Future: true, Delay: 10 * time.Minute}
 }
 
-// IsYahoo is whether Candle's name for a market is one of Yahoo's.
-func IsYahoo(id string) bool { return strings.HasPrefix(id, "CME:") || strings.HasPrefix(id, "US:") }
+// IsYahoo is whether Candle's name for a market is one of Yahoo's: a CME
+// future, a US stock, a Korean one or the VIX.
+func IsYahoo(id string) bool {
+	for _, p := range []string{"CME:", "US:", "KRX:", "CBOE:"} {
+		if strings.HasPrefix(id, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // InstrumentOf is the market Candle names id.
 func InstrumentOf(id string) (Instrument, bool) {
@@ -92,7 +106,7 @@ func InstrumentOf(id string) (Instrument, bool) {
 	if i := slices.IndexFunc(Futures, func(f Instrument) bool { return f.ID == id }); i >= 0 {
 		return Futures[i], true
 	}
-	return Instrument{}, false
+	return listedOf(id)
 }
 
 // A yahooInterval is a bar size of Yahoo's: its name, how far back it goes
@@ -202,12 +216,19 @@ var newYork = func() *time.Location {
 }()
 
 // SessionStart is when the session holding t (Unix ms) began: a stock's at
-// 9:30 New York time that day, a future's at 18:00 the evening before.
+// 9:30 New York time that day, a future's at 18:00 the evening before, and
+// another market's when it opens on its own clock that day (Shanghai's at
+// 9:30, Seoul's at 9:00, the VIX's at 3:00 in New York).
 func (in Instrument) SessionStart(t int64) int64 {
-	n := time.UnixMilli(t).In(newYork)
 	if !in.Future {
-		return time.Date(n.Year(), n.Month(), n.Day(), 9, 30, 0, 0, newYork).UnixMilli()
+		loc, opens := newYork, hm(9, 30)
+		if in.Loc != nil {
+			loc, opens = in.Loc, in.Opens
+		}
+		n := time.UnixMilli(t).In(loc)
+		return time.Date(n.Year(), n.Month(), n.Day(), int(opens/time.Hour), int(opens%time.Hour/time.Minute), 0, 0, loc).UnixMilli()
 	}
+	n := time.UnixMilli(t).In(newYork)
 	s := time.Date(n.Year(), n.Month(), n.Day(), 18, 0, 0, 0, newYork)
 	if n.Before(s) {
 		s = time.Date(n.Year(), n.Month(), n.Day()-1, 18, 0, 0, 0, newYork)
@@ -221,7 +242,7 @@ func (in Instrument) SessionStart(t int64) int64 {
 // it has limit bars or reaches that beginning.
 func (y Yahoo) Klines(ctx context.Context, symbol, interval string, end int64, limit int) ([]Bar, error) {
 	in, ok := InstrumentOf(symbol)
-	if !ok {
+	if !ok || !IsYahoo(symbol) {
 		return nil, fmt.Errorf("yahoo: no market %q", symbol)
 	}
 	p, ok := y.plan(in, interval)
@@ -336,7 +357,7 @@ func (y Yahoo) chart(ctx context.Context, in Instrument, yi yahooInterval, from,
 func (y Yahoo) Stream(ctx context.Context, symbol, interval string, fn func(bar Bar, closed bool, at int64)) error {
 	in, ok := InstrumentOf(symbol)
 	p, ok2 := y.plan(in, interval)
-	if !ok || !ok2 {
+	if !ok || !ok2 || !IsYahoo(symbol) {
 		return fmt.Errorf("yahoo: no %s bars of %q", interval, symbol)
 	}
 	yi := p.src
@@ -386,7 +407,7 @@ func (y Yahoo) Symbols(ctx context.Context, names ...string) ([]Symbol, error) {
 	var out []Symbol
 	for _, n := range names {
 		in, ok := InstrumentOf(n)
-		if !ok {
+		if !ok || !IsYahoo(n) {
 			return nil, fmt.Errorf("yahoo: no market %q", n)
 		}
 		s := Symbol{Name: in.ID, Base: in.Code, Tick: in.Tick, Desc: in.Name}
@@ -399,8 +420,11 @@ func (y Yahoo) Symbols(ctx context.Context, names ...string) ([]Symbol, error) {
 			if err != nil {
 				return nil, fmt.Errorf("yahoo %s: %w", in.Code, err)
 			}
-			s.Desc = cmp.Or(m.Long, m.Short)
+			s.Desc = cmp.Or(in.Name, m.Long, m.Short) // the VIX keeps its Chinese name
 			s.Tick = math.Pow(10, -float64(cmp.Or(m.PriceHint, 2)))
+			if in.Tick >= 1 { // won, which Yahoo gives two decimals
+				s.Tick = in.Tick
+			}
 		}
 		out = append(out, s)
 	}
@@ -443,7 +467,7 @@ func (y Yahoo) Quotes(ctx context.Context, ids []string) ([]Ticker, error) {
 		var tickers []string
 		byTicker := map[string]string{}
 		for _, id := range chunk {
-			if in, ok := InstrumentOf(id); ok {
+			if in, ok := InstrumentOf(id); ok && IsYahoo(id) {
 				tickers = append(tickers, in.Ticker)
 				byTicker[in.Ticker] = id
 			}
