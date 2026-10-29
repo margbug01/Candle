@@ -527,3 +527,45 @@ func TestEastmoneyAsksLessAtNight(t *testing.T) {
 		}
 	}
 }
+
+// Most tests ask a fake Eastmoney many times over: no gap for them.
+func init() { eastGap = 0 }
+
+// Requests to Eastmoney go out eastGap apart, however many ask at once;
+// one whose ctx ends while it waits goes nowhere.
+func TestEastmoneyGap(t *testing.T) {
+	defer func(g time.Duration) { eastGap = g }(eastGap)
+	eastGap = 80 * time.Millisecond
+	var mu sync.Mutex
+	var at []time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		at = append(at, time.Now())
+		mu.Unlock()
+		fmt.Fprint(w, `{"rc":0,"data":{"f57":"600795","f58":"国电电力","f59":2}}`)
+	}))
+	defer srv.Close()
+	e := Eastmoney{HTTP: srv.Client(), Push: srv.URL}
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() { e.Symbols(context.Background(), "SSE:600795") })
+	}
+	time.Sleep(10 * time.Millisecond) // their turns taken: this one's is after them
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if _, err := e.Symbols(ctx, "SSE:600795"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a request whose ctx ended while waiting: %v", err)
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(at) != 4 {
+		t.Fatalf("%d requests came, want 4", len(at))
+	}
+	slices.SortFunc(at, func(x, y time.Time) int { return x.Compare(y) })
+	for i := 1; i < len(at); i++ {
+		if d := at[i].Sub(at[i-1]); d < eastGap-10*time.Millisecond {
+			t.Errorf("request %d came %v after the one before, want %v at least", i, d, eastGap)
+		}
+	}
+}
