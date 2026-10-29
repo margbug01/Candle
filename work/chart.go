@@ -467,24 +467,28 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 	type hit struct {
 		t                   market.Ticker
 		rank, from, pop, at int
+		usd                 float64 // a pair's day in dollars
 	}
 	var hits []hit
+	usd := dollars(pairs)
 	for _, t := range pairs {
 		code, from := t.Symbol, 0
 		if market.IsPerp(code) { // BTCUSDT.P reads as BTCUSDT, after the spot pair
 			code, from = strings.TrimSuffix(code, ".P"), 1
 		}
 		r := rankOf(code)
-		if code == q+"USDT" || from == 1 && iconCoin(code) == q+"USDT" { // 1000PEPEUSDT.P is pepe's
+		// The coin itself, in whatever money (BTCUSDT, BTCFDUSD, BTCTRY), and
+		// 1000PEPEUSDT.P as PEPE.
+		if base, _ := splitPair(code); base == q || iconCoin(base) == q {
 			r = 0
 		}
 		if r < 0 {
 			continue
 		}
-		if !strings.HasSuffix(code, "USDT") {
+		if r > 0 && !strings.HasSuffix(code, "USDT") {
 			r += 2
 		}
-		hits = append(hits, hit{t: t, rank: r, from: from})
+		hits = append(hits, hit{t: t, rank: r, from: from, usd: usd(t)})
 	}
 	for i, in := range futures {
 		if r := marketRank(in, in.Name+" "+in.Alias); r >= 0 {
@@ -497,11 +501,15 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 			if pop == 0 {
 				pop = math.MaxInt
 			}
-			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 3, pop: pop, at: len(in.Code)})
+			from := 3
+			if r == 0 && in.Rank > 0 { // NVDA itself before Binance's NVDA perpetual
+				from = -1
+			}
+			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: from, pop: pop, at: len(in.Code)})
 		}
 	}
 	slices.SortStableFunc(hits, func(a, b hit) int {
-		return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.from, b.from), cmp.Compare(b.t.QuoteVolume, a.t.QuoteVolume),
+		return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.from, b.from), cmp.Compare(b.usd, a.usd),
 			cmp.Compare(a.pop, b.pop), cmp.Compare(a.at, b.at), strings.Compare(a.t.Symbol, b.t.Symbol))
 	})
 	out := make([]market.Ticker, 0, min(len(hits), limit))
@@ -534,6 +542,47 @@ func pinyinMatch(py, q string) bool {
 		}
 	}
 	return false
+}
+
+// quoteAssets are the money Binance's pairs are priced in, the stablecoins
+// first, for telling a pair's coin from its money by the name's end.
+var quoteAssets = []string{"FDUSD", "USDT", "USDC", "TUSD", "USD1", "DAI", "BTC", "ETH", "BNB",
+	"EUR", "TRY", "BRL", "JPY", "IDR", "ARS", "MXN", "PLN", "RON", "ZAR", "UAH", "COP", "CZK"}
+
+// splitPair tells a pair's coin from its money: BTCIDR is BTC in IDR.
+func splitPair(code string) (base, quote string) {
+	for _, q := range quoteAssets {
+		if b, ok := strings.CutSuffix(code, q); ok && b != "" {
+			return b, q
+		}
+	}
+	return code, ""
+}
+
+// dollars is a pair's day's trading in dollars, its money's priced against
+// USDT by the pairs: BTCIDR's rupiah through USDTIDR. Money with no price
+// counts nothing.
+func dollars(pairs []market.Ticker) func(market.Ticker) float64 {
+	price := make(map[string]float64, len(pairs))
+	for _, t := range pairs {
+		if !market.IsPerp(t.Symbol) {
+			price[t.Symbol] = t.Last
+		}
+	}
+	return func(t market.Ticker) float64 {
+		_, quote := splitPair(strings.TrimSuffix(t.Symbol, ".P"))
+		switch quote {
+		case "USDT", "USDC", "FDUSD", "TUSD", "USD1", "DAI":
+			return t.QuoteVolume
+		}
+		if p := price[quote+"USDT"]; p > 0 {
+			return t.QuoteVolume * p
+		}
+		if p := price["USDT"+quote]; p > 0 {
+			return t.QuoteVolume / p
+		}
+		return 0
+	}
 }
 
 func isAlnum(b byte) bool {

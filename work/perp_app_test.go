@@ -98,12 +98,14 @@ func TestSearchFindsPerps(t *testing.T) {
 		}
 		return s
 	}
-	a.all = append(a.all, market.Ticker{Symbol: "PEPECOINUSDT", Open: 1, Last: 1, QuoteVolume: 1e9})
+	a.all = append(a.all, market.Ticker{Symbol: "PEPECOINUSDT", Open: 1, Last: 1, QuoteVolume: 1e9},
+		market.Ticker{Symbol: "1000PEPEXUSDT", Open: 1, Last: 1, QuoteVolume: 1e9})
 	a.searchGen++
 	for q, want := range map[string][]string{
-		"btc":  {"BTCUSDT", "BTCUSDT.P"},
-		"pepe": {"PEPEUSDT", "1000PEPEUSDT.P", "PEPECOINUSDT"}, // the perpetual as pepe's own
-		"nvda": {"NVDAUSDT.P"},
+		"btc":      {"BTCUSDT", "BTCUSDT.P"},
+		"pepe":     {"PEPEUSDT", "PEPEFDUSD", "1000PEPEUSDT.P", "PEPECOINUSDT"}, // the perpetual as pepe's own
+		"nvda":     {"US:NVDA", "NVDAUSDT.P"},                                   // the stock before Binance's perpetual on it
+		"1000pepe": {"1000PEPEUSDT.P", "1000PEPEXUSDT"},                         // the perpetual's own coin as it reads
 	} {
 		if got := ids(a.findings(q, 10)); !slices.Equal(got[:min(len(got), len(want))], want) {
 			t.Errorf("%s: %v, want %v first", q, got, want)
@@ -183,7 +185,7 @@ func TestSearchGroups(t *testing.T) {
 	a.query = "nvda"
 	tt.Frame()
 	tt.Frame()
-	if g := a.foundFor("nvda").groups; g[0].sec.key != "perp" {
+	if g := a.foundFor("nvda").groups; g[0].sec.key != "us" || g[1].sec.key != "perp" {
 		t.Fatalf("nvda: %v first", g[0].sec.key)
 	}
 	a.perpState = 3
@@ -215,5 +217,33 @@ func TestSectionOrderTakesNewSections(t *testing.T) {
 		if !slices.Equal(got, c.want) {
 			t.Errorf("kept %v: %v, want %v", c.kept, got, c.want)
 		}
+	}
+}
+
+// Pairs of the coin itself come first, in whatever money, the busiest in
+// dollars first: BTCIDR's rupiah count through USDTIDR's price, not as so
+// many rupiah; money with no price counts nothing.
+func TestSearchRanksPairsInDollars(t *testing.T) {
+	pairs := []market.Ticker{
+		{Symbol: "BTCJPY", Last: 1.2e7, QuoteVolume: 1e12},
+		{Symbol: "BTCIDR", Last: 1.3e9, QuoteVolume: 1e12}, // 62.5M dollars
+		{Symbol: "BTCUSDC", Last: 79900, QuoteVolume: 2e9},
+		{Symbol: "BTCUSDT", Last: 79950, QuoteVolume: 9e9},
+		{Symbol: "ETHBTC", Last: 0.029, QuoteVolume: 3000}, // 240M dollars, not BTC's own
+		{Symbol: "USDTIDR", Last: 16000, QuoteVolume: 1e10},
+		{Symbol: "BTCDOMUSDT.P", Last: 5584, QuoteVolume: 1e7},
+	}
+	var got []string
+	for _, h := range searchAll("btc", pairs, nil, nil, 10) {
+		got = append(got, h.Symbol)
+	}
+	if want := []string{"BTCUSDT", "BTCUSDC", "BTCIDR", "BTCJPY", "BTCDOMUSDT.P", "ETHBTC"}; !slices.Equal(got, want) {
+		t.Fatalf("btc: %v, want %v", got, want)
+	}
+	if b, q := splitPair("BTCFDUSD"); b != "BTC" || q != "FDUSD" {
+		t.Fatalf("BTCFDUSD is %s in %s", b, q)
+	}
+	if b, q := splitPair("ETHBTC"); b != "ETH" || q != "BTC" {
+		t.Fatalf("ETHBTC is %s in %s", b, q)
 	}
 }

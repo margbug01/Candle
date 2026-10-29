@@ -821,13 +821,7 @@ func (a *application) names(sym string) (base, quote string) {
 	if in, ok := market.InstrumentOf(sym); ok {
 		return in.Code, ""
 	}
-	sym = strings.TrimSuffix(sym, ".P") // a perpetual: as its pair
-	for _, q := range []string{"USDT", "USDC", "FDUSD", "BTC", "ETH", "BNB"} {
-		if b, ok := strings.CutSuffix(sym, q); ok && b != "" {
-			return b, q
-		}
-	}
-	return sym, ""
+	return splitPair(strings.TrimSuffix(sym, ".P")) // a perpetual: as its pair
 }
 
 // priceDecimals is how many decimals sym's prices show; sample stands in until
