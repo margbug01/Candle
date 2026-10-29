@@ -53,6 +53,9 @@ func (k palette) apply(t *ui.Theme) {
 	t.Selection = k.accent.Alpha(0.3)
 }
 
+// breaks is the day lines' color unless the settings say otherwise.
+func (k palette) breaks() ui.Color { return k.accent.Alpha(0.55) }
+
 // move is the color of text telling a move up or down.
 func (k palette) move(v float64) ui.Color {
 	if v >= 0 {
@@ -344,6 +347,19 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 			weight = 600
 		}
 		label(p, xx, bottom+timeH/2, span(t.text, size, textCol, weight), alignCenter)
+	}
+	// Where each day begins: under a day's bars only, where a bar is a day or more.
+	if st.Breaks && ivMs < 86_400_000 {
+		col, w, at := st.BreakColor.or(k.breaks()), float32(st.BreakWidth)*px, mid
+		if st.BreakWidth%2 == 0 {
+			at = snap // an even width is sharp on a pixel's edge
+		}
+		for _, b := range dayBreaks(a.bars, from, to, ivMs, st.breakLoc()) {
+			xx := at(plot.X + v.x(b.i, plot.W, n) + (b.frac-0.5)*v.spacing)
+			if xx >= plot.X && xx <= plot.X+plot.W {
+				dash(p, xx, plot.Y, xx, bottom, w, col, st.BreakStyle)
+			}
+		}
 	}
 	if st.Watermark {
 		base, quote := a.names(a.symbol)

@@ -46,6 +46,11 @@ type style struct {
 	Background              hexColor
 	VertGrid, HorzGrid      bool
 	VertColor, HorzColor    hexColor
+	Breaks                  bool     // a line where each day begins, on bars under a day
+	BreakColor              hexColor // unset, the theme's
+	BreakStyle              string   // "" dashed, "dotted", "solid"
+	BreakWidth              int      // in pixels, 1–4
+	BreakZone               string   // when a day begins: "" midnight in the chart's zone, "utc" midnight UTC, as Binance's daily bars
 	Cross                   hexColor
 	CrossStyle              string // "" dashed, "dotted", "solid"
 	Watermark               bool
@@ -60,7 +65,7 @@ func defaultStyle() style {
 		Body: true, Borders: true, Wick: true, Volume: true, Precision: -1,
 		Title: true, Values: true, Change: true, VolumeValue: true,
 		NoOverlap: true, IndValues: true, Countdown: true, Weekday: true, DateFormat: "2006-01-02",
-		VertGrid: true, HorzGrid: true, TextSize: 11, TopMargin: 8, BottomMargin: 22, RightBars: 6,
+		VertGrid: true, HorzGrid: true, BreakWidth: 1, TextSize: 11, TopMargin: 8, BottomMargin: 22, RightBars: 6,
 	}
 }
 
@@ -84,6 +89,9 @@ func (st *style) fix() {
 	}
 	if st.DateFormat == "" {
 		st.DateFormat = d.DateFormat
+	}
+	if st.BreakWidth < 1 || st.BreakWidth > 4 {
+		st.BreakWidth = d.BreakWidth
 	}
 }
 
@@ -153,6 +161,14 @@ func (st style) loc() *time.Location {
 	return l
 }
 
+// breakLoc is the zone whose midnight begins a day for the day lines.
+func (st style) breakLoc() *time.Location {
+	if st.BreakZone == "utc" {
+		return time.UTC
+	}
+	return st.loc()
+}
+
 var weekdays = [...]string{"日", "一", "二", "三", "四", "五", "六"}
 
 // crossTime is the full time of a bar ivMs long opening at ms, as the
@@ -204,6 +220,7 @@ var (
 	clocks      = []option{{"", "24 小时"}, {"12", "12 小时"}}
 	themes      = []option{{"", "跟随系统"}, {"light", "浅色"}, {"dark", "深色"}}
 	crossStyles = []option{{"", "虚线"}, {"dotted", "点线"}, {"solid", "实线"}}
+	lineWidths  = []option{{"1", "1 像素"}, {"2", "2 像素"}, {"3", "3 像素"}, {"4", "4 像素"}}
 	textSizes   = []option{{"10", "10"}, {"11", "11"}, {"12", "12"}, {"13", "13"}, {"14", "14"}}
 	timeZones   = []option{
 		{"", "本机时区"}, {"UTC", "UTC"}, {"Asia/Shanghai", "上海"}, {"Asia/Tokyo", "东京"}, {"Asia/Singapore", "新加坡"},

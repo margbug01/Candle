@@ -2,6 +2,7 @@ package main
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -272,6 +273,17 @@ func (a *application) scalesPage(c *ui.Context, t *ui.Theme, k palette) {
 	row(c, "时间格式", func() { a.dropdown(c, "时间格式", clocks, clock, func(v string) { st.Clock12 = v == "12" }) })
 }
 
+// dayStarts are when a day may begin for the day lines. UTC's midnight
+// reads in the chart's time too, unless the chart tells time in UTC.
+func dayStarts(st *style) []option {
+	utc := "UTC 0 点（币安日线开盘）"
+	now := time.Now().UTC()
+	if at := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).In(st.loc()); at.Hour() != 0 || at.Minute() != 0 {
+		utc = "UTC 0 点（图表时间 " + at.Format("15:04") + "，币安日线开盘）"
+	}
+	return []option{{"", "图表时区 0 点"}, {"utc", utc}}
+}
+
 func (a *application) canvasPage(c *ui.Context, t *ui.Theme, k palette) {
 	st := &a.set.Chart
 	section(c, t, "图表")
@@ -288,6 +300,17 @@ func (a *application) canvasPage(c *ui.Context, t *ui.Theme, k palette) {
 	checkRow(c, &st.HorzGrid, "水平网格线", func() {
 		a.well(c, "水平网格线颜色", st.HorzColor.or(k.grid), func(h hexColor) { st.HorzColor = h })
 	})
+	checkRow(c, &st.Breaks, "交易日分隔线", func() {
+		a.well(c, "分隔线颜色", st.BreakColor.or(k.breaks()), func(h hexColor) { st.BreakColor = h })
+		a.dropdown(c, "分隔线线型", crossStyles, st.BreakStyle, func(v string) { st.BreakStyle = v }).Width(96)
+		a.dropdown(c, "分隔线粗细", lineWidths, strconv.Itoa(st.BreakWidth), func(v string) { st.BreakWidth, _ = strconv.Atoi(v) }).Width(96)
+	})
+	if st.Breaks {
+		row(c, "一天的起点", func() {
+			a.dropdown(c, "一天的起点", dayStarts(st), st.BreakZone, func(v string) { st.BreakZone = v }).Width(300).
+				Tooltip("每天在这个时刻画一条竖线。只在 1 天以下的周期画：日线和更大的周期，每根 K 线就是一天")
+		})
+	}
 	row(c, "十字光标", func() {
 		a.well(c, "十字光标颜色", st.Cross.or(k.cross), func(h hexColor) { st.Cross = h })
 		a.dropdown(c, "十字光标线型", crossStyles, st.CrossStyle, func(v string) { st.CrossStyle = v })

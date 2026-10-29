@@ -364,6 +364,34 @@ func timeTicks(bars []market.Bar, from, to int, ivMs int64, spacing float32, loc
 	return out
 }
 
+// A dayBreak is where a day begins among the bars: in bar i, frac of the way
+// from its open to its close.
+type dayBreak struct {
+	i    int
+	frac float32
+}
+
+// dayBreaks are where days begin, at midnight in loc, among bars from..to,
+// ivMs long. A day beginning while a bar is open, as a 12-hour bar opening
+// at 20:00 is, is marked inside it; one in a gap of the data, at the open
+// of the bar after the gap.
+func dayBreaks(bars []market.Bar, from, to int, ivMs int64, loc *time.Location) []dayBreak {
+	var out []dayBreak
+	for i := max(from, 1); i <= min(to+1, len(bars)-1); i++ {
+		a, b := time.UnixMilli(bars[i-1].T).In(loc), time.UnixMilli(bars[i].T).In(loc)
+		if a.YearDay() == b.YearDay() && a.Year() == b.Year() {
+			continue
+		}
+		m := time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, loc).UnixMilli()
+		if prev := bars[i-1].T; m > prev && m < prev+ivMs {
+			out = append(out, dayBreak{i - 1, float32(m-prev) / float32(ivMs)})
+		} else {
+			out = append(out, dayBreak{i, 0})
+		}
+	}
+	return out
+}
+
 // merge puts got into have by open time, replacing bars it already has, and
 // reports how many went past the end.
 func merge(have, got []market.Bar) ([]market.Bar, int) {
