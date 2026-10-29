@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"candle/market"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -37,6 +39,8 @@ type fakeBinance struct {
 	urls           map[string]string
 	icon           []byte
 	lists, fetches int
+	got            []string        // the addresses fetched
+	none           map[string]bool // addresses with no picture
 }
 
 func (f *fakeBinance) list(context.Context) (map[string]string, error) {
@@ -49,6 +53,10 @@ func (f *fakeBinance) list(context.Context) (map[string]string, error) {
 
 func (f *fakeBinance) fetch(_ context.Context, u string) ([]byte, error) {
 	f.fetches++
+	f.got = append(f.got, u)
+	if f.none[u] {
+		return nil, fmt.Errorf("icon %s: %w", u, market.ErrNoIcon)
+	}
 	if f.icon == nil {
 		return nil, errors.New("no icon")
 	}
@@ -236,5 +244,28 @@ func TestIconsShow(t *testing.T) {
 	tt.Frame()
 	if n := count(tt.Image(), watch, magenta); n < disc*2 { // PEPE/USDT and PEPE/FDUSD
 		t.Fatalf("%d icon pixels in the search", n)
+	}
+}
+
+// A stock's logo comes from FMP, without Binance's list, kept like a coin's;
+// a stock with none shows its letter and is not asked for again.
+func TestStockLogos(t *testing.T) {
+	dir := t.TempDir()
+	f := &fakeBinance{icon: iconPNG(t, magenta), none: map[string]bool{market.StockLogo("ZZZZ"): true}}
+	a := iconApp(dir, f)
+	if iconOf(a, "US:NVDA") == nil || f.lists != 0 || len(f.got) != 1 || f.got[0] != "https://financialmodelingprep.com/image-stock/NVDA.png" {
+		t.Fatalf("NVDA: lists %d, fetched %v", f.lists, f.got)
+	}
+	if b := iconApp(dir, f); iconOf(b, "US:NVDA") == nil || f.fetches != 1 {
+		t.Fatalf("NVDA's logo not kept: %d fetches", f.fetches)
+	}
+	for range 3 {
+		a.icon("US:ZZZZ")
+	}
+	if f.fetches != 2 || a.icon("US:ZZZZ") != nil {
+		t.Fatalf("a stock without a logo: %d fetches", f.fetches)
+	}
+	if a.icon("CME:NQ") != nil || f.fetches != 2 {
+		t.Fatal("a future's icon asked for")
 	}
 }

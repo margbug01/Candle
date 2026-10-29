@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"hash/fnv"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode"
 
@@ -109,13 +112,18 @@ func (a *application) icon(coin string) *ui.Bitmap {
 	if b := ic.bitmaps[coin]; b != nil {
 		return b
 	}
-	if ic.urls == nil {
-		a.loadIcons(false)
-		return nil
-	}
-	u := ic.urls[coin]
-	if u == "" && !ic.asked { // a coin listed since the list was kept
-		a.loadIcons(true)
+	var u string
+	if code, ok := strings.CutPrefix(coin, "US:"); ok { // a stock's logo: no list to ask
+		u = market.StockLogo(code)
+	} else {
+		if ic.urls == nil {
+			a.loadIcons(false)
+			return nil
+		}
+		u = ic.urls[coin]
+		if u == "" && !ic.asked { // a coin listed since the list was kept
+			a.loadIcons(true)
+		}
 	}
 	if u == "" || ic.busy[coin] || time.Since(ic.failed[coin]) < iconRetry {
 		return nil
@@ -145,6 +153,9 @@ func (a *application) icon(coin string) *ui.Bitmap {
 			delete(ic.busy, coin)
 			if err != nil {
 				ic.failed[coin] = time.Now()
+				if errors.Is(err, market.ErrNoIcon) { // none there: not asked again this run
+					ic.failed[coin] = time.Now().Add(100 * 365 * 24 * time.Hour)
+				}
 				return
 			}
 			delete(ic.failed, coin)
@@ -154,14 +165,29 @@ func (a *application) icon(coin string) *ui.Bitmap {
 	return nil
 }
 
-// symIcon is sym's icon, size across: a coin's picture, or for a future or
-// a stock (Yahoo has no pictures) the first letter of its code.
+// symIcon is sym's icon, size across: a coin's picture, a stock's logo, or
+// for a future, and until a picture is in, the first letter of its code.
 func (a *application) symIcon(c *ui.Context, sym string, size float32) ui.Element {
 	base, _ := a.names(sym)
-	if market.IsYahoo(sym) {
+	switch {
+	case strings.HasPrefix(sym, "US:"):
+		if b := a.icon(sym); b != nil {
+			return logoDisc(c, b, size)
+		}
+		return letterDisc(c, base, size)
+	case market.IsYahoo(sym):
 		return letterDisc(c, base, size)
 	}
 	return a.coinIcon(c, base, size)
+}
+
+// logoDisc is a company's logo on a white disc, a little inside it: the
+// logos are drawn for a white page, and a disc of their own size would cut
+// their corners off and lose a black one on the dark theme.
+func logoDisc(c *ui.Context, b *ui.Bitmap, size float32) ui.Element {
+	d := float32(math.Round(float64(size) * 0.72))
+	return ui.Box(c).Size(size, size).Radius(size/2).Shrink(0).Background(ui.Hex("#ffffff")).Border(1, ui.RGBA(0, 0, 0, 0.08)).Center().
+		Children(func() { ui.Image(c, b).Size(d, d) })
 }
 
 // coinIcon is coin's icon, size across, as a disc: the picture, or its first

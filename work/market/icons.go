@@ -3,6 +3,7 @@ package market
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,6 +65,16 @@ func iconURL(u string) bool {
 }
 
 // Icon downloads an icon from an address Icons gave: PNG, JPEG or WebP.
+// ErrNoIcon is Icon's answer for an address with no picture.
+var ErrNoIcon = errors.New("no such icon")
+
+// StockLogo is where a US stock's or ETF's logo is: Financial Modeling
+// Prep's, free and without a key, reached from mainland China without a
+// proxy. Its logos are PNGs of 100 or 250 pixels, drawn on nothing.
+func StockLogo(code string) string {
+	return "https://financialmodelingprep.com/image-stock/" + url.PathEscape(code) + ".png"
+}
+
 func (b Binance) Icon(ctx context.Context, u string) ([]byte, error) {
 	if !iconURL(u) {
 		return nil, fmt.Errorf("icon %q: not an https address", u)
@@ -82,6 +93,9 @@ func (b Binance) Icon(ctx context.Context, u string) ([]byte, error) {
 		return nil, fmt.Errorf("icon: %w", err)
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("icon %s: %w", u, ErrNoIcon)
+	}
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("icon %s: %s", u, res.Status)
 	}
