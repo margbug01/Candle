@@ -57,26 +57,27 @@ type Instrument struct {
 	Future bool
 	Delay  time.Duration // how late Yahoo shows it
 	Alias  string        // other names it is found by: "英伟达"
+	Pinyin string        // the pinyin of its Chinese names, a syllable a word: "ying wei da"
 	Rank   int           // its place among the most looked up (Popular), 1 first, 0 none
 }
 
 // The CME contracts Candle offers. Yahoo has the micro contracts' own trades
 // too: MNQ is not NQ's prices under another name.
 var Futures = []Instrument{
-	future("NQ", "纳指 E-mini", 0.25),
-	future("MNQ", "微型纳指", 0.25),
-	future("ES", "标普 E-mini", 0.25),
-	future("MES", "微型标普", 0.25),
-	future("YM", "道指 E-mini", 1),
-	future("MYM", "微型道指", 1),
-	future("RTY", "罗素 2000 E-mini", 0.1),
-	future("M2K", "微型罗素 2000", 0.1),
-	future("GC", "黄金", 0.1),
-	future("CL", "原油 WTI", 0.01),
+	future("NQ", "纳指 E-mini", "na zhi", 0.25),
+	future("MNQ", "微型纳指", "wei xing na zhi", 0.25),
+	future("ES", "标普 E-mini", "biao pu", 0.25),
+	future("MES", "微型标普", "wei xing biao pu", 0.25),
+	future("YM", "道指 E-mini", "dao zhi", 1),
+	future("MYM", "微型道指", "wei xing dao zhi", 1),
+	future("RTY", "罗素 2000 E-mini", "luo su", 0.1),
+	future("M2K", "微型罗素 2000", "wei xing luo su", 0.1),
+	future("GC", "黄金", "huang jin", 0.1),
+	future("CL", "原油 WTI", "yuan you", 0.01),
 }
 
-func future(code, name string, tick float64) Instrument {
-	return Instrument{ID: "CME:" + code, Code: code, Name: name, Ticker: code + "=F", Tick: tick, Future: true, Delay: 10 * time.Minute}
+func future(code, name, pinyin string, tick float64) Instrument {
+	return Instrument{ID: "CME:" + code, Code: code, Name: name, Pinyin: pinyin, Ticker: code + "=F", Tick: tick, Future: true, Delay: 10 * time.Minute}
 }
 
 // IsYahoo is whether Candle's name for a market is one of Yahoo's.
@@ -270,7 +271,10 @@ func (y Yahoo) Klines(ctx context.Context, symbol, interval string, end int64, l
 		if len(out) >= limit || atFloor {
 			break
 		}
-		to, span = from, span*2
+		// Short of limit: what is left goes back to where Yahoo's history
+		// begins (a week at a time for minutes), in one request rather than
+		// widening steps: a stock listed last year has its days in two.
+		to, span = from, from.Sub(floor)
 	}
 	return out[max(len(out)-limit, 0):], nil
 }

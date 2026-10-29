@@ -519,7 +519,11 @@ func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 	ui.Row(c.Key("search")).FillWidth().Height(32).Padding(0, 4, 0, 10).Gap(6).AlignItems(ui.Center).Radius(6).Background(k.field).Children(func() {
 		ui.Icon(c, searchIcon).Size(14, 14).TextColor(t.TextMuted).Shrink(0)
 		in := ui.TextInput(c.Key("query"), &a.query).Grow(1).MinWidth(0).Background(ui.Transparent).Border(0, ui.Transparent).
-			Padding(0).FontSize(13).Placeholder("搜索：PEPE、NQ、AAPL").Label("搜索交易对、期货、美股")
+			Padding(0).FontSize(13).Placeholder("代码或拼音：PEPE、NQ、ywd").Label("搜索交易对、期货、美股").
+			// Letters go straight in, Pinyin on or not: an input method's
+			// letters are not the field's until chosen, so nothing would be
+			// found as one types. Chinese names go by their pinyin.
+			InputMethod(false)
 		if in.Submitted() {
 			if hits := a.findings(a.query, 1); len(hits) == 1 {
 				a.pick(hits[0].Symbol)

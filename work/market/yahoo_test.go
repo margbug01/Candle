@@ -246,7 +246,12 @@ func TestYahooKlinesPages(t *testing.T) {
 	if err != nil || len(days) != 300 {
 		t.Fatalf("days: %d, %v", len(days), err)
 	}
+	f.asked = nil
 	rest, err := y.Klines(ctx, "CME:MNQ", "1d", days[0].T-1, 300)
+	// A page short of 300 asks for the rest at once, not in widening steps.
+	if len(f.asked) != 2 {
+		t.Fatalf("the rest of the days in %d requests: %v", len(f.asked), f.asked)
+	}
 	if err != nil || len(rest) == 0 || len(rest) >= 300 || rest[len(rest)-1].T >= days[0].T {
 		t.Fatalf("the rest of the days: %d, %v", len(rest), err)
 	}

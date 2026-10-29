@@ -50,6 +50,16 @@ func TestSearchAll(t *testing.T) {
 		// Of the codes starting with A, the popular, then the shortest.
 		{"a", 6, []string{"US:A", "US:AAPL", "US:AMZN", "US:AMD", "US:AVGO", "US:ARM"}},
 		{"snap", 10, []string{"US:SNAP"}},
+		// By pinyin, typed with the input method off: initials anywhere,
+		// spelling from a syllable on; codes holding it come after.
+		{"ywd", 10, []string{"US:NVDA"}},
+		{"yingweida", 10, []string{"US:NVDA"}},
+		{"weida", 10, []string{"US:NVDA"}},
+		{"pg", 10, []string{"US:AAPL", "US:FXI"}}, // 苹果, then 中国大盘股 (zgdPG)
+		{"albb", 10, []string{"US:BABA"}},
+		{"nz", 10, []string{"CME:NQ", "CME:MNQ", "US:QQQ", "US:TQQQ", "US:SQQQ"}},
+		{"wxnz", 10, []string{"CME:MNQ"}},
+		{"ai", 10, []string{"US:XOM", "US:ABNB"}}, // 埃克森美孚, 爱彼迎; not 百度's bAIdu
 		{"", 10, nil},
 	} {
 		if got := ids(searchAll(c.q, pairs, market.Futures, stocks, c.n)); !slices.Equal(got, c.want) {
@@ -269,5 +279,22 @@ func TestSessionButtons(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("RTH") {
 		t.Fatal("RTH on a coin's chart")
+	}
+}
+
+// The search box takes letters as typed, with Pinyin on too: an input
+// method's letters are not the field's until chosen, and nothing would be
+// found meanwhile.
+func TestSearchTakesLetters(t *testing.T) {
+	a := testApp()
+	tt := newTester(a, true)
+	click(t, tt, "搜索交易对、期货、美股")
+	if active, noIME := tt.TextInputActive(); !active || !noIME {
+		t.Fatalf("the search box: text input %v, input method off %v", active, noIME)
+	}
+	tt.Type("sndk")
+	tt.Frame()
+	if a.query != "sndk" {
+		t.Fatalf("typed sndk: %q", a.query)
 	}
 }

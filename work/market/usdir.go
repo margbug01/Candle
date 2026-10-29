@@ -72,7 +72,7 @@ func WithPopular(list []Instrument) []Instrument {
 			list = append(list, Instrument{ID: "US:" + p.Code, Code: p.Code, Ticker: p.Code, Tick: 0.01})
 			i = len(list) - 1
 		}
-		list[i].Alias, list[i].Rank = p.Zh, r+1
+		list[i].Alias, list[i].Pinyin, list[i].Rank = p.Zh, p.Py, r+1
 	}
 	return list
 }
@@ -120,28 +120,29 @@ func shortName(name string) string {
 }
 
 // Popular are the US stocks and ETFs looked up most, by people in China not
-// least, with the Chinese names they go by: the search puts them first among
-// as good matches, and finds them by those names.
-var Popular = []struct{ Code, Zh string }{
-	{"NVDA", "英伟达"}, {"TSLA", "特斯拉"}, {"AAPL", "苹果"}, {"SPY", "标普500ETF"}, {"QQQ", "纳指100ETF"},
-	{"MSFT", "微软"}, {"AMZN", "亚马逊"}, {"META", "脸书 Meta"}, {"GOOGL", "谷歌"}, {"GOOG", "谷歌C"},
-	{"AMD", "超威半导体"}, {"AVGO", "博通"}, {"TSM", "台积电"}, {"PLTR", "帕兰提尔"}, {"MSTR", "微策略"},
-	{"COIN", "Coinbase"}, {"NFLX", "奈飞"}, {"BABA", "阿里巴巴"}, {"PDD", "拼多多"}, {"JD", "京东"},
-	{"BIDU", "百度"}, {"NIO", "蔚来"}, {"LI", "理想汽车"}, {"XPEV", "小鹏汽车"}, {"BILI", "哔哩哔哩 B站"},
-	{"NTES", "网易"}, {"TME", "腾讯音乐"}, {"FUTU", "富途"}, {"TCOM", "携程"}, {"BEKE", "贝壳"},
-	{"ZTO", "中通快递"}, {"YUMC", "百胜中国"}, {"BRK-B", "伯克希尔"}, {"JPM", "摩根大通"}, {"V", "维萨 Visa"},
-	{"MA", "万事达"}, {"LLY", "礼来"}, {"UNH", "联合健康"}, {"XOM", "埃克森美孚"}, {"WMT", "沃尔玛"},
-	{"COST", "好市多 Costco"}, {"INTC", "英特尔"}, {"ORCL", "甲骨文"}, {"QCOM", "高通"}, {"MU", "美光"},
-	{"ARM", "安谋"}, {"SMCI", "超微电脑"}, {"ASML", "阿斯麦"}, {"CRM", "赛富时"}, {"ADBE", "奥多比"},
-	{"HOOD", "罗宾汉"}, {"UBER", "优步"}, {"ABNB", "爱彼迎"}, {"DIS", "迪士尼"}, {"NKE", "耐克"},
-	{"KO", "可口可乐"}, {"PEP", "百事"}, {"MCD", "麦当劳"}, {"SBUX", "星巴克"}, {"BA", "波音"},
-	{"GS", "高盛"}, {"MS", "摩根士丹利"}, {"BAC", "美国银行"}, {"C", "花旗"}, {"PYPL", "贝宝 PayPal"},
-	{"F", "福特"}, {"GM", "通用汽车"}, {"RIVN", "Rivian"}, {"SOFI", "SoFi"}, {"CRWD", "CrowdStrike"},
-	{"VOO", "先锋标普500ETF"}, {"IWM", "罗素2000ETF"}, {"DIA", "道指ETF"}, {"TQQQ", "三倍做多纳指"}, {"SQQQ", "三倍做空纳指"},
-	{"SOXL", "三倍做多半导体"}, {"SOXS", "三倍做空半导体"}, {"SMH", "半导体ETF"}, {"ARKK", "方舟创新ETF"}, {"GLD", "黄金ETF"},
-	{"SLV", "白银ETF"}, {"TLT", "20年美债ETF"}, {"UVXY", "恐慌指数ETF"}, {"KWEB", "中概互联网ETF"}, {"FXI", "中国大盘股ETF"},
-	{"YINN", "三倍做多中国"}, {"IBIT", "比特币ETF"}, {"ETHA", "以太坊ETF"}, {"XLK", "科技ETF"}, {"XLF", "金融ETF"},
-	{"XLE", "能源ETF"},
+// least, with the Chinese names they go by and those names' pinyin, a
+// syllable a word: the search puts them first among as good matches, and
+// finds them by those names, typed or spelled (ywd, yingweida: 英伟达).
+var Popular = []struct{ Code, Zh, Py string }{
+	{"NVDA", "英伟达", "ying wei da"}, {"TSLA", "特斯拉", "te si la"}, {"AAPL", "苹果", "ping guo"}, {"SPY", "标普500ETF", "biao pu"}, {"QQQ", "纳指100ETF", "na zhi"},
+	{"MSFT", "微软", "wei ruan"}, {"AMZN", "亚马逊", "ya ma xun"}, {"META", "脸书 Meta", "lian shu"}, {"GOOGL", "谷歌", "gu ge"}, {"GOOG", "谷歌C", "gu ge"},
+	{"AMD", "超威半导体", "chao wei ban dao ti"}, {"AVGO", "博通", "bo tong"}, {"TSM", "台积电", "tai ji dian"}, {"PLTR", "帕兰提尔", "pa lan ti er"}, {"MSTR", "微策略", "wei ce lve"},
+	{"COIN", "Coinbase", ""}, {"NFLX", "奈飞", "nai fei"}, {"BABA", "阿里巴巴", "a li ba ba"}, {"PDD", "拼多多", "pin duo duo"}, {"JD", "京东", "jing dong"},
+	{"BIDU", "百度", "bai du"}, {"NIO", "蔚来", "wei lai"}, {"LI", "理想汽车", "li xiang qi che"}, {"XPEV", "小鹏汽车", "xiao peng qi che"}, {"BILI", "哔哩哔哩 B站", "bi li bi li"},
+	{"NTES", "网易", "wang yi"}, {"TME", "腾讯音乐", "teng xun yin yue"}, {"FUTU", "富途", "fu tu"}, {"TCOM", "携程", "xie cheng"}, {"BEKE", "贝壳", "bei ke"},
+	{"ZTO", "中通快递", "zhong tong kuai di"}, {"YUMC", "百胜中国", "bai sheng zhong guo"}, {"BRK-B", "伯克希尔", "bo ke xi er"}, {"JPM", "摩根大通", "mo gen da tong"}, {"V", "维萨 Visa", "wei sa"},
+	{"MA", "万事达", "wan shi da"}, {"LLY", "礼来", "li lai"}, {"UNH", "联合健康", "lian he jian kang"}, {"XOM", "埃克森美孚", "ai ke sen mei fu"}, {"WMT", "沃尔玛", "wo er ma"},
+	{"COST", "好市多 Costco", "hao shi duo"}, {"INTC", "英特尔", "ying te er"}, {"ORCL", "甲骨文", "jia gu wen"}, {"QCOM", "高通", "gao tong"}, {"MU", "美光", "mei guang"},
+	{"ARM", "安谋", "an mou"}, {"SMCI", "超微电脑", "chao wei dian nao"}, {"ASML", "阿斯麦", "a si mai"}, {"CRM", "赛富时", "sai fu shi"}, {"ADBE", "奥多比", "ao duo bi"},
+	{"HOOD", "罗宾汉", "luo bin han"}, {"UBER", "优步", "you bu"}, {"ABNB", "爱彼迎", "ai bi ying"}, {"DIS", "迪士尼", "di shi ni"}, {"NKE", "耐克", "nai ke"},
+	{"KO", "可口可乐", "ke kou ke le"}, {"PEP", "百事", "bai shi"}, {"MCD", "麦当劳", "mai dang lao"}, {"SBUX", "星巴克", "xing ba ke"}, {"BA", "波音", "bo yin"},
+	{"GS", "高盛", "gao sheng"}, {"MS", "摩根士丹利", "mo gen shi dan li"}, {"BAC", "美国银行", "mei guo yin hang"}, {"C", "花旗", "hua qi"}, {"PYPL", "贝宝 PayPal", "bei bao"},
+	{"F", "福特", "fu te"}, {"GM", "通用汽车", "tong yong qi che"}, {"RIVN", "Rivian", ""}, {"SOFI", "SoFi", ""}, {"CRWD", "CrowdStrike", ""},
+	{"VOO", "先锋标普500ETF", "xian feng biao pu"}, {"IWM", "罗素2000ETF", "luo su"}, {"DIA", "道指ETF", "dao zhi"}, {"TQQQ", "三倍做多纳指", "san bei zuo duo na zhi"}, {"SQQQ", "三倍做空纳指", "san bei zuo kong na zhi"},
+	{"SOXL", "三倍做多半导体", "san bei zuo duo ban dao ti"}, {"SOXS", "三倍做空半导体", "san bei zuo kong ban dao ti"}, {"SMH", "半导体ETF", "ban dao ti"}, {"ARKK", "方舟创新ETF", "fang zhou chuang xin"}, {"GLD", "黄金ETF", "huang jin"},
+	{"SLV", "白银ETF", "bai yin"}, {"TLT", "20年美债ETF", "nian mei zhai"}, {"UVXY", "恐慌指数ETF", "kong huang zhi shu"}, {"KWEB", "中概互联网ETF", "zhong gai hu lian wang"}, {"FXI", "中国大盘股ETF", "zhong guo da pan gu"},
+	{"YINN", "三倍做多中国", "san bei zuo duo zhong guo"}, {"IBIT", "比特币ETF", "bi te bi"}, {"ETHA", "以太坊ETF", "yi tai fang"}, {"XLK", "科技ETF", "ke ji"}, {"XLF", "金融ETF", "jin rong"},
+	{"XLE", "能源ETF", "neng yuan"},
 }
 
 // PopularOnly is the popular markets alone, for the search until the list

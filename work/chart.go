@@ -403,7 +403,8 @@ func dayBreaks(bars []market.Bar, from, to int, ivMs int64, dayOf func(int64) in
 // searchAll finds markets of every source by name: Binance's pairs, the
 // CME futures and the US stocks. The code itself (BTC for BTCUSDT) comes
 // first, then codes starting with the query, then those holding it or a
-// Chinese name holding it (纳指, 苹果), then names starting with it (apple:
+// Chinese name holding it (纳指, 苹果) or its pinyin (nz, pingguo), then
+// names starting with it (apple:
 // Apple Inc.), then names with another word starting with it. On a par, pairs before
 // futures before stocks; USDT pairs before others, busiest first; the stocks
 // looked up most first, then the shortest codes.
@@ -440,6 +441,9 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 			case (strings.HasPrefix(a, q) || cjk && strings.Contains(a, q)) && (r < 0 || r > 1):
 				r = 1
 			}
+		}
+		if (r < 0 || r > 1) && pinyinMatch(in.Pinyin, q) {
+			r = 1
 		}
 		if r >= 0 || in.Future {
 			return r
@@ -501,6 +505,31 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 		out = append(out, h.t)
 	}
 	return out
+}
+
+// pinyinMatch is whether q, two letters or more, is in the pinyin of a
+// market's Chinese names ("ying wei da"): in their initials (ywd, wd), or
+// spelled from a syllable on (yingweida, weida), as Chinese trading apps
+// find stocks, the search box taking letters even with Pinyin on.
+func pinyinMatch(py, q string) bool {
+	if len(q) < 2 || py == "" || strings.ContainsFunc(q, func(r rune) bool { return r < 'A' || r > 'Z' }) {
+		return false
+	}
+	q = strings.ToLower(q)
+	syl := strings.Fields(py)
+	var initials strings.Builder
+	for _, s := range syl {
+		initials.WriteByte(s[0])
+	}
+	if strings.Contains(initials.String(), q) {
+		return true
+	}
+	for i := range syl {
+		if strings.HasPrefix(strings.Join(syl[i:], ""), q) {
+			return true
+		}
+	}
+	return false
 }
 
 func isAlnum(b byte) bool {
