@@ -96,6 +96,25 @@ func (st *style) fix() {
 	}
 }
 
+// colors sets the bars' colors as a quick scheme of the settings does:
+// bodies up and down, borders and wicks edge or, unset, the bodies', and
+// the labels and text as the bodies have them.
+func (st *style) colors(up, down, edge hexColor) {
+	st.Up, st.Down = up, down
+	st.BorderUp, st.BorderDown, st.WickUp, st.WickDown = edge, edge, edge, edge
+	st.Ink, st.InkUp, st.InkDown = "", hexColor{}, hexColor{}
+}
+
+// mono is 白涨黑跌: rising bars white, falling black, both edged in the
+// theme's text color, which keeps the white ones on a white background and
+// the black ones on a dark one; the labels, the legend and the moves keep
+// the theme's green and red, which a glance reads faster than a sign.
+func (st *style) mono(dark bool) {
+	k := themePalette(dark)
+	st.colors(hexColor(ui.Hex("#ffffff")), hexColor(ui.Hex("#000000")), hexColor(k.text))
+	st.Ink, st.InkUp, st.InkDown = "custom", hexColor(k.up), hexColor(k.down)
+}
+
 // band is the stretch of a plot's height, as fractions from its top, that
 // the candles take.
 func (st style) band() (top, bottom float32) {

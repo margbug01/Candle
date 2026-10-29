@@ -278,3 +278,29 @@ func TestInkShowsOnTheBackground(t *testing.T) {
 		shot(t, tt, "mono-light")
 	}
 }
+
+// 白涨黑跌: white rising bodies, black falling ones, edged in the theme's
+// text so neither is lost; the labels keep green and red, and the other
+// schemes put them back.
+func TestMonoColors(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		a := testApp()
+		tt := newTester(a, dark)
+		openSettings(t, tt, "商品")
+		click(t, tt, "白涨黑跌")
+		st, k := a.set.Chart, themePalette(dark)
+		edge := hexColor(k.text)
+		if st.Up != hexColor(ui.Hex("#ffffff")) || st.Down != hexColor(ui.Hex("#000000")) ||
+			st.BorderUp != edge || st.BorderDown != edge || st.WickUp != edge || st.WickDown != edge {
+			t.Fatalf("dark %v: %+v", dark, st)
+		}
+		if st.Ink != "custom" || st.InkUp != hexColor(k.up) || st.InkDown != hexColor(k.down) {
+			t.Fatalf("dark %v: labels %q %v %v", dark, st.Ink, st.InkUp, st.InkDown)
+		}
+		click(t, tt, "红涨绿跌")
+		st = a.set.Chart
+		if st.Ink != "" || st.InkUp.set() || st.BorderUp.set() || st.Up != hexColor(k.down) {
+			t.Fatalf("dark %v: 红涨绿跌 after: %+v", dark, st)
+		}
+	}
+}

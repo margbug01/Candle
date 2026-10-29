@@ -206,12 +206,13 @@ func (a *application) symbolPage(c *ui.Context, t *ui.Theme, k palette) {
 	row(c, "快速配色", func() {
 		def := paletteFor(t.Dark)
 		if ui.Button(c, "绿涨红跌").Clicked() {
-			st.Up, st.Down = hexColor{}, hexColor{}
-			st.BorderUp, st.BorderDown, st.WickUp, st.WickDown = hexColor{}, hexColor{}, hexColor{}, hexColor{}
+			st.colors(hexColor{}, hexColor{}, hexColor{})
 		}
 		if ui.Button(c, "红涨绿跌").Clicked() {
-			st.Up, st.Down = hexColor(def.down), hexColor(def.up)
-			st.BorderUp, st.BorderDown, st.WickUp, st.WickDown = hexColor{}, hexColor{}, hexColor{}, hexColor{}
+			st.colors(hexColor(def.down), hexColor(def.up), hexColor{})
+		}
+		if ui.Button(c, "白涨黑跌").Clicked() {
+			st.mono(t.Dark)
 		}
 	})
 	checkRow(c, &st.Body, "实体", func() { a.upDown(c, "实体", &st.Up, &st.Down, paletteFor(t.Dark).up, paletteFor(t.Dark).down) })
