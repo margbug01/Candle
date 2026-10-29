@@ -28,9 +28,9 @@ func fixedText(c *ui.Context, spans ...ui.Span) ui.Element {
 }
 
 func (a *application) indicatorByID(id int64) *indicator {
-	for i := range a.set.Indicators {
-		if a.set.Indicators[i].ID == id {
-			return &a.set.Indicators[i]
+	for i := range a.indicators {
+		if a.indicators[i].ID == id {
+			return &a.indicators[i]
 		}
 	}
 	return nil
@@ -38,15 +38,15 @@ func (a *application) indicatorByID(id int64) *indicator {
 
 func (a *application) addIndicator(k *indKind) {
 	var id int64
-	for _, ind := range a.set.Indicators {
+	for _, ind := range a.indicators {
 		id = max(id, ind.ID)
 	}
-	a.set.Indicators = append(slices.Clone(a.set.Indicators), newIndicator(k, id+1, a.set.Indicators))
+	a.indicators = append(slices.Clone(a.indicators), newIndicator(k, id+1, a.indicators))
 	a.save()
 }
 
 func (a *application) deleteIndicator(id int64) {
-	a.set.Indicators = slices.DeleteFunc(slices.Clone(a.set.Indicators), func(ind indicator) bool { return ind.ID == id })
+	a.indicators = slices.DeleteFunc(slices.Clone(a.indicators), func(ind indicator) bool { return ind.ID == id })
 	delete(a.series, id)
 	delete(a.paneViews, id)
 	if a.indEdit == id {
@@ -91,15 +91,15 @@ func (a *application) legends(c *ui.Context, t *ui.Theme, k palette, i int) {
 		if len(values) > 0 {
 			fixedText(c, values...).Margin(0, 0, 2, 4).PassThrough()
 		}
-		for j := range a.set.Indicators {
-			if kind, ok := kindOf(a.set.Indicators[j].Kind); ok && !kind.pane {
-				a.legendRow(c, t, k, &a.set.Indicators[j], kind, i)
+		for j := range a.indicators {
+			if kind, ok := kindOf(a.indicators[j].Kind); ok && !kind.pane {
+				a.legendRow(c, t, k, &a.indicators[j], kind, i)
 			}
 		}
 	})
 	_, panes := a.layout(a.boxH - timeH)
 	for _, pn := range panes {
-		ind := &a.set.Indicators[pn.idx]
+		ind := &a.indicators[pn.idx]
 		kind, _ := kindOf(ind.Kind)
 		ui.Column(c.Key(fmt.Sprintf("legend-%d", ind.ID))).Absolute().Top(pn.y + 4).Left(10).PassThrough().Children(func() {
 			a.legendRow(c, t, k, ind, kind, i)
@@ -141,7 +141,7 @@ func (a *application) legendRow(c *ui.Context, t *ui.Theme, k palette, ind *indi
 				a.openIndicator(id)
 			}
 			if legendButton(c, t, k, fmt.Sprintf("ind-del-%d", id), "删除指标", clearIcon).Clicked() {
-				a.later = append(a.later, func() { a.deleteIndicator(id) })
+				a.afterBuild(func() { a.deleteIndicator(id) })
 			}
 		}
 		if ind.Hidden {
@@ -227,7 +227,7 @@ func (a *application) indicatorsDialog(c *ui.Context, t *ui.Theme, k palette) {
 					}
 					if in.Submitted() && len(hits) > 0 {
 						first := hits[0]
-						a.later = append(a.later, func() { a.addIndicator(first) })
+						a.afterBuild(func() { a.addIndicator(first) })
 					}
 				})
 			})
@@ -258,7 +258,7 @@ func (a *application) indicatorsDialog(c *ui.Context, t *ui.Theme, k palette) {
 
 func (a *application) kindRow(c *ui.Context, t *ui.Theme, k palette, kind *indKind) {
 	count := 0
-	for _, ind := range a.set.Indicators {
+	for _, ind := range a.indicators {
 		if ind.Kind == kind.key {
 			count++
 		}
@@ -277,7 +277,7 @@ func (a *application) kindRow(c *ui.Context, t *ui.Theme, k palette, kind *indKi
 		ui.Icon(c, plusIcon).Size(14, 14).TextColor(t.TextMuted).Shrink(0)
 	})
 	if row.Clicked() {
-		a.later = append(a.later, func() { a.addIndicator(kind) })
+		a.afterBuild(func() { a.addIndicator(kind) })
 	}
 }
 

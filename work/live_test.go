@@ -42,8 +42,8 @@ func TestLive(t *testing.T) {
 	// came out as working out all of them does.
 	worked := func(what string) (from []int) {
 		t.Helper()
-		for i := range a.set.Indicators {
-			ind := &a.set.Indicators[i]
+		for i := range a.indicators {
+			ind := &a.indicators[i]
 			s := a.seriesFor(ind)
 			k, _ := kindOf(ind.Kind)
 			var fresh series

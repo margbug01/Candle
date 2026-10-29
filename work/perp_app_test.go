@@ -63,8 +63,8 @@ func TestPerpOnTheChart(t *testing.T) {
 	}
 }
 
-// The funding is asked for while the perpetual is on the chart, and goes
-// to the chart it was asked for only.
+// The funding is asked for while the perpetual is on a chart, and goes to
+// the charts its feed feeds only.
 func TestFollowFunding(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"markPrice":"79953.4","lastFundingRate":"0.0001","nextFundingTime":1793260800000}`)
@@ -75,14 +75,15 @@ func TestFollowFunding(t *testing.T) {
 	a.post = func(f func()) { got <- f }
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go a.followFunding(ctx, a.gen, market.Perp{HTTP: srv.Client(), Base: srv.URL}, "BTCUSDT.P")
+	f := a.share
+	go a.followFunding(ctx, f, market.Perp{HTTP: srv.Client(), Base: srv.URL}, "BTCUSDT.P")
 	(<-got)()
 	if a.fundingOf != "BTCUSDT.P" || a.funding.Rate != 0.0001 || a.funding.Mark != 79953.4 {
 		t.Fatalf("funding %+v of %s", a.funding, a.fundingOf)
 	}
-	a.gen++ // another chart
+	a.open("ETHUSDT", "1h") // another market
 	a.fundingOf = ""
-	go a.followFunding(ctx, a.gen-1, market.Perp{HTTP: srv.Client(), Base: srv.URL}, "BTCUSDT.P")
+	go a.followFunding(ctx, f, market.Perp{HTTP: srv.Client(), Base: srv.URL}, "BTCUSDT.P")
 	(<-got)()
 	if a.fundingOf != "" {
 		t.Fatal("an old chart's funding taken")

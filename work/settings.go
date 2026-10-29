@@ -10,14 +10,17 @@ import (
 // settings are kept between runs in %APPDATA%\Candle\settings.json, and on
 // macOS in ~/Library/Application Support/Candle/settings.json.
 type settings struct {
-	Symbol     string
-	Interval   string
+	// Layout is which of TradingView's layouts shows the charts, "" for one
+	// chart. Charts are the layout's charts, in TradingView's order, those a
+	// layout with fewer hides too; Active is the one the toolbar acts on.
+	Layout     string `json:",omitempty"`
+	Charts     []chartSettings
+	Active     int
 	Watch      []string
 	Chart      style
 	Drawings   map[string][]drawing // by market
 	Magnet     bool
-	Indicators []indicator // for every market
-	AutoUpdate bool        // check for a new version now and then
+	AutoUpdate bool // check for a new version now and then
 	// FuturesRTH shows futures' intraday bars in the regular trading hours
 	// only (RTH), not the whole electronic session (ETH).
 	FuturesRTH bool `json:",omitempty"`
@@ -27,10 +30,25 @@ type settings struct {
 	Folded   []string `json:",omitempty"`
 }
 
+// chartSettings are a chart's: its market, its bars and its indicators.
+type chartSettings struct {
+	Symbol     string
+	Interval   string
+	Indicators []indicator
+}
+
+// savedSettings are what the file holds: the settings, and the active
+// chart as versions before the layouts kept the one chart.
+type savedSettings struct {
+	settings
+	Symbol     string
+	Interval   string
+	Indicators []indicator
+}
+
 func defaultSettings() settings {
 	return settings{
-		Symbol:     "BTCUSDT",
-		Interval:   "1h",
+		Charts:     []chartSettings{{Symbol: "BTCUSDT", Interval: "1h"}},
 		Watch:      []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "SUIUSDT", "ADAUSDT"},
 		Chart:      defaultStyle(),
 		Magnet:     true,
@@ -47,14 +65,22 @@ func settingsPath() string {
 }
 
 // loadSettings reads the file; what is missing or damaged keeps its default.
+// A file from before the layouts has the one chart.
 func loadSettings(file string) settings {
-	s := defaultSettings()
+	saved := savedSettings{settings: defaultSettings()}
+	saved.Charts = nil
 	if data, err := os.ReadFile(file); err == nil {
-		json.Unmarshal(data, &s)
+		json.Unmarshal(data, &saved)
 	}
-	if _, ok := intervalOf(s.Interval); !ok {
-		s.Interval = "1h"
+	s := saved.settings
+	if len(s.Charts) == 0 {
+		s.Charts = []chartSettings{{Symbol: saved.Symbol, Interval: saved.Interval, Indicators: saved.Indicators}}
 	}
+	s.Charts = s.Charts[:min(len(s.Charts), maxCells)]
+	for i := range s.Charts {
+		s.Charts[i].fix()
+	}
+	s.Active = min(max(s.Active, 0), len(s.Charts)-1)
 	s.Chart.fix()
 	for sym, ds := range s.Drawings { // what a damaged file holds that cannot be drawn
 		s.Drawings[sym] = slices.DeleteFunc(ds, func(d drawing) bool {
@@ -62,11 +88,18 @@ func loadSettings(file string) settings {
 			return !ok || len(d.Pts) != t.points
 		})
 	}
-	s.Indicators = fixIndicators(s.Indicators)
-	if s.Symbol == "" {
-		s.Symbol = "BTCUSDT"
-	}
 	return s
+}
+
+// fix gives a chart missing its market or its bars the default ones.
+func (cs *chartSettings) fix() {
+	if _, ok := intervalOf(cs.Interval); !ok {
+		cs.Interval = "1h"
+	}
+	if cs.Symbol == "" {
+		cs.Symbol = "BTCUSDT"
+	}
+	cs.Indicators = fixIndicators(cs.Indicators)
 }
 
 // saveSettings writes beside the file and renames over it, so a crash halfway
@@ -78,7 +111,12 @@ func saveSettings(file string, s settings) error {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
+	saved := savedSettings{settings: s}
+	if len(s.Charts) > 0 {
+		cs := s.Charts[min(max(s.Active, 0), len(s.Charts)-1)]
+		saved.Symbol, saved.Interval, saved.Indicators = cs.Symbol, cs.Interval, cs.Indicators
+	}
+	data, err := json.MarshalIndent(saved, "", "  ")
 	if err != nil {
 		return err
 	}

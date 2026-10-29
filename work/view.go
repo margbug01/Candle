@@ -39,6 +39,7 @@ func (a *application) render(c *ui.Context) {
 	k.apply(&theme)
 	c.SetTheme(&theme)
 	t := &theme
+	a.cell = a.activeCell()
 	a.drawingShortcuts(c) // window-wide: declared before anything is built in
 	ui.Column(c).FillWidth().FillHeight().Background(k.bg).Children(func() {
 		a.toolbar(c, t, k)
@@ -216,20 +217,30 @@ func (a *application) status(c *ui.Context, t *ui.Theme, k palette) {
 	}
 }
 
-// chartArea is the chart, drawn by drawChart, with the messages and the
-// button to the newest bar on top of it.
+// chartArea is the charts as the layout has them.
 func (a *application) chartArea(c *ui.Context, t *ui.Theme, k palette) {
-	if st := &a.set.Chart; st.Scale != a.scaleMode { // the prices refit on another scale
-		a.scaleMode, a.scale = st.Scale, prices{}
-	}
-	if h := a.home(); h != a.homeShown { // more or less room on the right: resting there, follow it
-		if a.view.offset == a.homeShown {
-			a.view.offset = h
+	ui.Box(c.Key("chart-area")).Grow(1).FillHeight().MinWidth(0).Children(func() { a.charts(c, t, k) })
+}
+
+// cellBox is a chart of the layout, in its box: the chart drawn by
+// drawChart, with the messages and the button to the newest bar on top of it.
+// It reports whether the pointer went down outside it since the last frame.
+func (a *application) cellBox(c *ui.Context, t *ui.Theme, k palette, i int, box func() ui.Element) (outside bool) {
+	a.on(a.cells[i], func() {
+		if st := &a.set.Chart; st.Scale != a.scaleMode { // the prices refit on another scale
+			a.scaleMode, a.scale = st.Scale, prices{}
 		}
-		a.homeShown = h
-	}
-	ui.Box(c.Key("chart-area")).Grow(1).FillHeight().MinWidth(0).Children(func() { a.chart(c, t, k) })
-	a.loadOlder()
+		if h := a.home(); h != a.homeShown { // more or less room on the right: resting there, follow it
+			if a.view.offset == a.homeShown {
+				a.view.offset = h
+			}
+			a.homeShown = h
+		}
+		b := box().Children(func() { a.chart(c, t, k) })
+		outside = b.PressedOutside()
+		a.loadOlder()
+	})
+	return outside
 }
 
 // chart is the chart itself and, as its siblings on top so that they take
@@ -257,9 +268,11 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 			cursor = ui.CursorPointer
 		}
 	}
-	box.Cursor(cursor).HandleInput(a.chartInput).ContextMenu(a.chartMenu).Draw(func(p *ui.Painter, r ui.Rect) {
-		a.drawChart(p, r, k, hx, hy, over)
-	})
+	cl := a.cell // the handlers run once the frame is built
+	box.Cursor(cursor).
+		HandleInput(func(ev ui.InputEvent) bool { return a.onCell(cl, func() bool { return a.chartInput(ev) }) }).
+		ContextMenu(func(m *ui.Menu) { a.on(cl, func() { a.chartMenu(m) }) }).
+		Draw(func(p *ui.Painter, r ui.Rect) { a.on(cl, func() { a.drawChart(p, r, k, hx, hy, over) }) })
 	switch {
 	case len(a.bars) == 0 && a.err != "":
 		overlay(c).Children(func() {
@@ -436,7 +449,7 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 		}
 		a.drag, a.dragX, a.dragY, a.dragPane = dragChart, ev.X, ev.Y, 0
 		if pn, ok := a.paneAt(ev.Y); ok {
-			a.dragPane = a.set.Indicators[pn.idx].ID
+			a.dragPane = a.indicators[pn.idx].ID
 		}
 		if onAxis {
 			a.drag = dragAxis

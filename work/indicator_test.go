@@ -272,18 +272,18 @@ func TestIndicatorsAreKept(t *testing.T) {
 	old := filepath.Join(dir, "old.json")
 	os.WriteFile(old, []byte(`{"Symbol":"ETHUSDT","Interval":"4h","Drawings":{"ETHUSDT":[{"ID":4,"Kind":"hline","Pts":[{"T":1,"P":2}]}]}}`), 0o644)
 	s := loadSettings(old)
-	if len(s.Indicators) != 0 || s.Symbol != "ETHUSDT" || len(s.Drawings["ETHUSDT"]) != 1 || s.Chart != defaultStyle() {
+	if len(s.Charts) != 1 || len(s.Charts[0].Indicators) != 0 || s.Charts[0].Symbol != "ETHUSDT" || len(s.Drawings["ETHUSDT"]) != 1 || s.Chart != defaultStyle() {
 		t.Fatalf("old file: %+v", s)
 	}
-	s.Indicators = allIndicators()
-	s.Indicators[1].Hidden = true
+	s.Charts[0].Indicators = allIndicators()
+	s.Charts[0].Indicators[1].Hidden = true
 	file := filepath.Join(dir, "settings.json")
 	if err := saveSettings(file, s); err != nil {
 		t.Fatal(err)
 	}
-	back := loadSettings(file)
-	if len(back.Indicators) != len(indKinds) || !back.Indicators[1].Hidden || back.Indicators[0].Colors[0] != s.Indicators[0].Colors[0] {
-		t.Fatalf("read back %+v", back.Indicators)
+	back := loadSettings(file).Charts[0].Indicators
+	if len(back) != len(indKinds) || !back[1].Hidden || back[0].Colors[0] != s.Charts[0].Indicators[0].Colors[0] {
+		t.Fatalf("read back %+v", back)
 	}
 }
 

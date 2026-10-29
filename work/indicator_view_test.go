@@ -51,8 +51,8 @@ func TestAddIndicatorsFromTheList(t *testing.T) {
 	click(t, tt, "添加 MA")
 	tt.Advance(time.Second) // two clicks, not a double click
 	click(t, tt, "添加 MA")
-	if len(a.set.Indicators) != 2 || a.set.Indicators[0].Params[0] != 5 || a.set.Indicators[1].Params[0] != 10 || !a.indList {
-		t.Fatalf("after two clicks: %+v, list open %v", a.set.Indicators, a.indList)
+	if len(a.indicators) != 2 || a.indicators[0].Params[0] != 5 || a.indicators[1].Params[0] != 10 || !a.indList {
+		t.Fatalf("after two clicks: %+v, list open %v", a.indicators, a.indList)
 	}
 	if !tt.HasText("已添加 2") {
 		t.Fatal("the list does not count what was added")
@@ -63,8 +63,8 @@ func TestAddIndicatorsFromTheList(t *testing.T) {
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
 	tt.Frame()
-	if n := len(a.set.Indicators); n != 3 || a.set.Indicators[2].Kind != "macd" {
-		t.Fatalf("typing macd and Enter: %+v", a.set.Indicators)
+	if n := len(a.indicators); n != 3 || a.indicators[2].Kind != "macd" {
+		t.Fatalf("typing macd and Enter: %+v", a.indicators)
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
@@ -111,7 +111,7 @@ func TestLegendButtons(t *testing.T) {
 		t.Fatalf("the settings button moved from %v to %v under the pointer", gear, moved)
 	}
 	click(t, tt, "隐藏指标")
-	macd := a.indicatorByID(a.set.Indicators[1].ID)
+	macd := a.indicatorByID(a.indicators[1].ID)
 	if !macd.Hidden || !tt.HasText("显示指标") {
 		t.Fatal("隐藏指标 left it shown")
 	}
@@ -120,11 +120,11 @@ func TestLegendButtons(t *testing.T) {
 		t.Fatal("显示指标 left it hidden")
 	}
 	hoverRow(t, tt, "MA 5")
-	id := a.set.Indicators[0].ID
-	a.seriesFor(&a.set.Indicators[0])
+	id := a.indicators[0].ID
+	a.seriesFor(&a.indicators[0])
 	click(t, tt, "删除指标")
-	if len(a.set.Indicators) != 1 || a.set.Indicators[0].Kind != "macd" || a.series[id] != nil {
-		t.Fatalf("after 删除指标: %+v, cache kept %v", a.set.Indicators, a.series[id] != nil)
+	if len(a.indicators) != 1 || a.indicators[0].Kind != "macd" || a.series[id] != nil {
+		t.Fatalf("after 删除指标: %+v, cache kept %v", a.indicators, a.series[id] != nil)
 	}
 }
 
@@ -133,7 +133,7 @@ func TestLegendButtons(t *testing.T) {
 func TestIndicatorSettings(t *testing.T) {
 	a := withIndicators("ma")
 	tt := newTester(a, true)
-	ma := &a.set.Indicators[0]
+	ma := &a.indicators[0]
 	edit := func() {
 		t.Helper()
 		hoverRow(t, tt, "MA "+ma.paramText())
@@ -212,8 +212,8 @@ func TestPaneSeparatorDrags(t *testing.T) {
 	if a.plotH < minMainH-0.5 {
 		t.Fatalf("the candles were squeezed to %v", a.plotH)
 	}
-	if len(a.set.Indicators) != 2 {
-		t.Fatalf("dragging the lines left %+v", a.set.Indicators)
+	if len(a.indicators) != 2 {
+		t.Fatalf("dragging the lines left %+v", a.indicators)
 	}
 }
 
@@ -286,14 +286,14 @@ func TestOverlaysWidenThePrices(t *testing.T) {
 	newTester(a, true)
 	from, to := a.view.span(a.plotW, len(a.bars))
 	lo, hi := priceRange(a.bars[from : to+1])
-	s := a.seriesFor(&a.set.Indicators[0])
+	s := a.seriesFor(&a.indicators[0])
 	for i := from; i <= to; i++ {
 		lo, hi = min(lo, s.at(2, i)), max(hi, s.at(1, i))
 	}
 	if a.shown.lo != lo || a.shown.hi != hi {
 		t.Fatalf("prices %v–%v, want the bands' %v–%v", a.shown.lo, a.shown.hi, lo, hi)
 	}
-	a.set.Indicators[0].Hidden = true
+	a.indicators[0].Hidden = true
 	newTester(a, true)
 	if l, h := priceRange(a.bars[from : to+1]); a.shown.lo != l || a.shown.hi != h {
 		t.Fatal("a hidden BOLL still widens the prices")
@@ -310,7 +310,7 @@ func TestLiveBarsUpdateTheTail(t *testing.T) {
 	last.C *= 1.002
 	a.addBars([]market.Bar{last})
 	tt.Frame()
-	for _, ind := range a.set.Indicators {
+	for _, ind := range a.indicators {
 		if s := a.series[ind.ID]; s.from != n-1 {
 			t.Fatalf("%s began at %d after a tick, want %d", ind.Kind, s.from, n-1)
 		}
@@ -318,7 +318,7 @@ func TestLiveBarsUpdateTheTail(t *testing.T) {
 	older := fakeBars(n+300, a.intervalMs())[:300]
 	a.bars = append(older, a.bars...)
 	tt.Frame()
-	for _, ind := range a.set.Indicators {
+	for _, ind := range a.indicators {
 		if s := a.series[ind.ID]; s.from != 0 || s.n != n+300 {
 			t.Fatalf("%s began at %d over %d bars after older ones came", ind.Kind, s.from, s.n)
 		}
@@ -328,7 +328,7 @@ func TestLiveBarsUpdateTheTail(t *testing.T) {
 // Keys for the drawings wait while an indicator dialog is open.
 func TestDialogsKeepDrawingKeys(t *testing.T) {
 	a, tt := drawApp(t)
-	a.set.Indicators = withIndicators("ma").set.Indicators
+	a.indicators = withIndicators("ma").indicators
 	click(t, tt, "水平线")
 	clickPlot(tt, a, 300, 200)
 	click(t, tt, "指标")

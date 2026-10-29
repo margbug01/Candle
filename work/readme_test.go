@@ -94,7 +94,7 @@ func TestReadmeShots(t *testing.T) {
 
 	for _, dark := range []bool{false, true} {
 		a := readmeApp("ma", "ma", "vol", "macd")
-		a.set.Indicators[1].Params[0] = 20
+		a.indicators[1].Params[0] = 20
 		a.set.Chart.Volume = false // VOL has a pane of its own
 		shoot(map[bool]string{false: "main-light", true: "main-dark"}[dark], a, dark, func(tt *ui.Tester) {
 			tt.Move(chartLeft(a)+610, chartTop(a)+170)

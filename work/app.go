@@ -49,32 +49,14 @@ type application struct {
 	file  string
 	set   settings
 
-	// The chart. gen counts the symbol and interval switches: an answer for an
-	// earlier one arrives with an older gen and is dropped.
-	symbol, interval string
-	bars             []market.Bar
-	view             view
-	plotW, plotH     float32 // the candles' pane
-	boxH             float32 // the whole chart, the time axis too
-	gen              int
-	ctx              context.Context
-	stop             context.CancelFunc
-	loading          bool // the first page is on its way
-	older            bool // a page further back is on its way
-	atStart          bool // the market's first bar is loaded
-	olderFailed      time.Time
-	err              string
-	stream           int
-	drag             int // dragNone, dragChart…
-	dragX, dragY     float32
-	dragPane         int64  // the indicator whose pane, or its price axis, is dragged
-	sep              int    // the pane whose top line is dragged
-	scale            prices // the price axis as set: automatic unless scaled by hand
-	shown            prices // the prices the last frame showed
-	axis             axis   // how the last frame laid them out
-	scaleMode        string // the scale the prices were set by hand on
-	homeShown        float32
-	clock            int64 // Binance's clock minus this machine's, ms
+	// The layout's charts, cells holding them all, those it hides too (as
+	// TradingView keeps them, for a layout with more), and the one the
+	// toolbar acts on. cell is the one being built, drawn or handled.
+	*cell
+	cells  []*cell
+	active int
+	feeds  map[string]*sharedFeed // by feedKey
+	clock  int64                  // Binance's clock minus this machine's, ms
 
 	// The watchlist and the search.
 	infos      map[string]market.Symbol
@@ -106,37 +88,16 @@ type application struct {
 	found      foundCache
 	priced     map[string]time.Time // when the results' prices were asked for
 
-	// The drawings: the tool in hand, the drawing being drawn and the point
-	// it is at, the one selected and the point of it being dragged.
-	tool           string
-	creating       *drawing
-	stage          int
-	sel            int64
-	handle         int
-	pressX, pressY float32
-	dragged        bool
-	orig           []point
-	hide           bool
-	editText       bool
-	textPick       choice[string]
-	textBox        map[int64]ui.Rect // texts as the last frame drew them
-	trashArmed     time.Time
-	nextID         int64
-	barFor         int64 // the drawing the bar showed last frame
-	pricePick      choice[float64]
-	accountPick    choice[float64]
-	riskPick       choice[float64]
-	undo, redo     [][]drawing // the market's drawings before each change, and after each undo
-	lastEdit       string      // the key of the last remembered change
-	dragBefore     []drawing   // the drawings as a drag of one began
-	clip           *drawing    // what Ctrl+C copied, and on which market
-	clipSym        string
+	// The drawings: the tool in hand, what is copied and on which market.
+	tool    string
+	hide    bool
+	nextID  int64
+	clip    *drawing // what Ctrl+C copied, and on which market
+	clipSym string
 
-	// The indicators: their values, the list to add them from and the
-	// dialog setting one, with it as it was, for 取消. later is what the
-	// frame being built changes once it is built.
-	series     map[int64]*series
-	paneViews  map[int64]*paneView // the indicators' panes' prices
+	// The indicators: the list to add them from and the dialog setting one,
+	// with it as it was, for 取消. later is what the frame being built
+	// changes once it is built.
 	indList    bool
 	indQuery   string
 	indFocus   bool
@@ -157,24 +118,26 @@ type application struct {
 }
 
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {
-	return &application{
+	a := &application{
 		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, perp: market.Perp{HTTP: bin.HTTP}, east: market.Eastmoney{HTTP: bin.HTTP}, post: post, file: file, set: set,
 		usFound: map[string][]market.Instrument{}, usNames: map[string]string{}, priced: map[string]time.Time{},
 		zhFound: map[string][]market.Instrument{}, zhNames: map[string]string{},
-		usFetch:   func(ctx context.Context) ([]byte, error) { return market.USList(ctx, bin.HTTP) },
-		spawn:     func(f func()) { go f() },
-		view:      defaultView(),
-		infos:     map[string]market.Symbol{},
-		quotes:    map[string]market.Ticker{},
-		picks:     map[string]*choice[string]{},
-		colors:    map[string]*choice[ui.Color]{},
-		series:    map[int64]*series{},
-		paneViews: map[int64]*paneView{},
-		scaleMode: set.Chart.Scale, homeShown: float32(set.Chart.RightBars),
-		textBox: map[int64]ui.Rect{},
+		usFetch: func(ctx context.Context) ([]byte, error) { return market.USList(ctx, bin.HTTP) },
+		spawn:   func(f func()) { go f() },
+		infos:   map[string]market.Symbol{},
+		quotes:  map[string]market.Ticker{},
+		picks:   map[string]*choice[string]{},
+		colors:  map[string]*choice[ui.Color]{},
+		feeds:   map[string]*sharedFeed{},
 		nextID:  maxDrawingID(set.Drawings),
 		icons:   newIcons("", bin.Icons, bin.Icon),
 	}
+	for _, cs := range set.Charts {
+		a.cells = append(a.cells, newCell(cs, set.Chart))
+	}
+	a.active = set.Active
+	a.cell = a.activeCell()
+	return a
 }
 
 func maxDrawingID(all map[string][]drawing) (id int64) {
@@ -187,7 +150,9 @@ func maxDrawingID(all map[string][]drawing) (id int64) {
 }
 
 func (a *application) start() {
-	a.open(a.set.Symbol, a.set.Interval)
+	for _, c := range a.cells[:a.shownCells()] {
+		a.on(c, func() { a.open(c.symbol, c.interval) })
+	}
 	a.watchQuotes()
 	a.loadAll()
 	a.loadPerps()
@@ -197,9 +162,15 @@ func (a *application) start() {
 	a.watchUpdates()
 }
 
-// save writes the settings. While the settings dialog is open the chart is
-// saved as it was: what the dialog shows is 确认's to keep.
+// save writes the settings, the charts' as they are. While the settings
+// dialog is open the chart is saved as it was: what the dialog shows is
+// 确认's to keep.
 func (a *application) save() {
+	a.set.Charts = make([]chartSettings, len(a.cells))
+	for i, c := range a.cells {
+		a.set.Charts[i] = c.saved()
+	}
+	a.set.Active = a.active
 	s := a.set
 	if a.editing {
 		s.Chart = a.before
@@ -207,11 +178,10 @@ func (a *application) save() {
 	saveSettings(a.file, s)
 }
 
-// open shows sym in bars of iv, keeping the zoom.
+// open shows sym in bars of iv, keeping the zoom; the bars come from the
+// feed another cell has for them, if one does.
 func (a *application) open(sym, iv string) {
-	if a.stop != nil {
-		a.stop()
-	}
+	a.park()
 	a.gen++
 	a.ctx, a.stop = context.WithCancel(context.Background())
 	if sym != a.symbol { // undo stays with the market it was done on
@@ -224,27 +194,41 @@ func (a *application) open(sym, iv string) {
 	a.sel, a.creating = 0, nil
 	a.olderFailed = time.Time{}
 	a.view.offset = a.home()
-	a.set.Symbol, a.set.Interval = sym, iv
 	a.save()
-	ctx, gen, feed := a.ctx, a.gen, a.barFeed(sym)
+	key := a.feedKey(sym, iv)
+	if a.joinFeed(key) {
+		return
+	}
+	ctx, stop := context.WithCancel(context.Background())
+	f := &sharedFeed{key: key, stop: stop, cells: []*cell{a.cell}}
+	a.feeds[key], a.share = f, f
+	feed := a.barFeed(sym)
 	_, known := a.infos[sym]
-	a.spawn(func() { a.feed(ctx, gen, feed, sym, iv, !known) })
+	a.spawn(func() { a.feed(ctx, f, feed, sym, iv, !known) })
 	if market.IsPerp(sym) {
 		perp := a.perp
-		a.spawn(func() { a.followFunding(ctx, gen, perp, sym) })
+		a.spawn(func() { a.followFunding(ctx, f, perp, sym) })
 	}
 }
 
+// park stops the cell's requests: what is on its way, and its feed unless
+// another cell takes it. The cell keeps its market, for showing it again.
+func (a *application) park() {
+	if a.stop != nil {
+		a.stop()
+		a.stop = nil
+	}
+	a.leaveFeed()
+}
+
 // followFunding asks for the perpetual's mark price and funding every half
-// minute while it is on the chart.
-func (a *application) followFunding(ctx context.Context, gen int, perp market.Perp, sym string) {
+// minute while it is on a chart.
+func (a *application) followFunding(ctx context.Context, f *sharedFeed, perp market.Perp, sym string) {
 	for {
-		f, err := perp.Funding(ctx, sym)
+		got, err := perp.Funding(ctx, sym)
 		if err == nil {
 			a.post(func() {
-				if gen == a.gen {
-					a.funding, a.fundingOf = f, sym
-				}
+				a.each(f, func() { a.funding, a.fundingOf = got, sym })
 			})
 		}
 		select {
@@ -256,8 +240,10 @@ func (a *application) followFunding(ctx context.Context, gen int, perp market.Pe
 }
 
 // feed loads the newest page, then follows the live bar, reconnecting with a
-// growing pause and filling in what it missed meanwhile.
-func (a *application) feed(ctx context.Context, gen int, feed market.Feed, sym, iv string, needInfo bool) {
+// growing pause and filling in what it missed meanwhile, for the cells f
+// feeds. A first page that does not come ends it, and the next cell to
+// show the market starts another.
+func (a *application) feed(ctx context.Context, f *sharedFeed, feed market.Feed, sym, iv string, needInfo bool) {
 	if needInfo {
 		go a.lookup(ctx, []string{sym})
 	}
@@ -266,15 +252,17 @@ func (a *application) feed(ctx context.Context, gen int, feed market.Feed, sym, 
 		return
 	}
 	a.post(func() {
-		if gen != a.gen {
-			return
+		if err != nil && a.feeds[f.key] == f {
+			delete(a.feeds, f.key)
 		}
-		a.loading = false
-		if err != nil {
-			a.err = shorten(err.Error(), 160)
-			return
-		}
-		a.bars, a.atStart = bars, len(bars) < 1000
+		a.each(f, func() {
+			a.loading = false
+			if err != nil {
+				a.err = shorten(err.Error(), 160)
+				return
+			}
+			a.bars, a.atStart = slices.Clone(bars), len(bars) < 1000
+		})
 	})
 	if err != nil {
 		return
@@ -285,10 +273,10 @@ func (a *application) feed(ctx context.Context, gen int, feed market.Feed, sym, 
 		feed.Stream(ctx, sym, iv, func(bar market.Bar, _ bool, _ int64) {
 			heard = true
 			a.post(func() {
-				if gen == a.gen {
+				a.each(f, func() {
 					a.stream = live
 					a.addBars([]market.Bar{bar})
-				}
+				})
 			})
 		})
 		if ctx.Err() != nil {
@@ -298,9 +286,7 @@ func (a *application) feed(ctx context.Context, gen int, feed market.Feed, sym, 
 			pause = time.Second
 		}
 		a.post(func() {
-			if gen == a.gen {
-				a.stream = reconnecting
-			}
+			a.each(f, func() { a.stream = reconnecting })
 		})
 		select {
 		case <-ctx.Done():
@@ -310,15 +296,14 @@ func (a *application) feed(ctx context.Context, gen int, feed market.Feed, sym, 
 		pause = min(pause*2, 30*time.Second)
 		if got, err := feed.Klines(ctx, sym, iv, 0, 1000); err == nil && len(got) > 0 {
 			a.post(func() {
-				if gen != a.gen {
-					return
-				}
-				// Away longer than a page: start over rather than leave a hole.
-				if n := len(a.bars); n == 0 || got[0].T > a.bars[n-1].T {
-					a.bars, a.atStart, a.view.offset = got, len(got) < 1000, a.home()
-					return
-				}
-				a.addBars(got)
+				a.each(f, func() {
+					// Away longer than a page: start over rather than leave a hole.
+					if n := len(a.bars); n == 0 || got[0].T > a.bars[n-1].T {
+						a.bars, a.atStart, a.view.offset = slices.Clone(got), len(got) < 1000, a.home()
+						return
+					}
+					a.addBars(got)
+				})
 			})
 		}
 	}
@@ -360,25 +345,30 @@ func (a *application) loadOlder() {
 		return
 	}
 	a.older = true
-	ctx, gen, sym, iv, end, feed := a.ctx, a.gen, a.symbol, a.interval, a.bars[0].T-1, a.barFeed(a.symbol)
+	c, ctx, gen, sym, iv, end, feed := a.cell, a.ctx, a.gen, a.symbol, a.interval, a.bars[0].T-1, a.barFeed(a.symbol)
 	a.spawn(func() {
 		got, err := feed.Klines(ctx, sym, iv, end, 1000)
 		a.post(func() {
-			if gen != a.gen {
+			if gen != c.gen {
 				return
 			}
-			a.older = false
-			if err != nil {
-				a.olderFailed = time.Now()
-				return
-			}
-			a.atStart = len(got) < 1000
-			if len(a.bars) > 0 {
-				got = got[:sort.Search(len(got), func(i int) bool { return got[i].T >= a.bars[0].T })]
-			}
-			a.bars = append(got, a.bars...)
+			a.on(c, func() { a.olderCame(got, err) })
 		})
 	})
+}
+
+// olderCame puts the page before the first bar in front of it.
+func (a *application) olderCame(got []market.Bar, err error) {
+	a.older = false
+	if err != nil {
+		a.olderFailed = time.Now()
+		return
+	}
+	a.atStart = len(got) < 1000
+	if len(a.bars) > 0 {
+		got = got[:sort.Search(len(got), func(i int) bool { return got[i].T >= a.bars[0].T })]
+	}
+	a.bars = append(got, a.bars...)
 }
 
 // watchQuotes follows the watchlist's prices, restarting when it changes:

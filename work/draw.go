@@ -428,7 +428,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 
 	scales := make([]paneScale, len(panes))
 	for i, pn := range panes {
-		scales[i] = a.drawPane(p, ui.Rect{X: plot.X, Y: r.Y + pn.y, W: plot.W, H: pn.h}, &a.set.Indicators[pn.idx], xAt, from, to, k, bw, px, mid)
+		scales[i] = a.drawPane(p, ui.Rect{X: plot.X, Y: r.Y + pn.y, W: plot.W, H: pn.h}, &a.indicators[pn.idx], xAt, from, to, k, bw, px, mid)
 	}
 
 	// The crosshair runs down every pane; its line across, and the label on
