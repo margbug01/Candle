@@ -105,7 +105,9 @@ func (a *application) headline(c *ui.Context, t *ui.Theme, k palette) {
 		})
 		q, hasQ := a.quotes[a.symbol]
 		last, ok := q.Last, hasQ
-		if n := len(a.bars); n > 0 {
+		// The newest bar, closer to the moment than the quote, but in the
+		// regular hours only, not once they are over.
+		if n := len(a.bars); n > 0 && !(a.rth() && hasQ) {
 			last, ok = a.bars[n-1].C, true
 		}
 		if !ok {

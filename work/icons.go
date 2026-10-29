@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"hash/fnv"
+	"image"
+	_ "image/png"
 	"math"
 	"os"
 	"path/filepath"
@@ -45,6 +48,7 @@ type icons struct {
 	asked    bool              // Binance gave the list this run
 	listFail time.Time         // when it last did not come
 	bitmaps  map[string]*ui.Bitmap
+	light    map[string]bool      // logos drawn in white, for a dark page
 	busy     map[string]bool      // coming
 	failed   map[string]time.Time // did not come, and when
 	slots    chan struct{}        // bounds the downloads
@@ -53,7 +57,7 @@ type icons struct {
 func newIcons(dir string, list func(context.Context) (map[string]string, error), fetch func(context.Context, string) ([]byte, error)) icons {
 	return icons{
 		dir: dir, list: list, fetch: fetch,
-		bitmaps: map[string]*ui.Bitmap{}, busy: map[string]bool{}, failed: map[string]time.Time{},
+		bitmaps: map[string]*ui.Bitmap{}, light: map[string]bool{}, busy: map[string]bool{}, failed: map[string]time.Time{},
 		slots: make(chan struct{}, iconParallel),
 	}
 }
@@ -149,8 +153,10 @@ func (a *application) icon(coin string) *ui.Bitmap {
 				}
 			}
 		}
+		light := err == nil && strings.HasPrefix(coin, "US:") && whiteLogo(data)
 		a.post(func() {
 			delete(ic.busy, coin)
+			ic.light[coin] = light
 			if err != nil {
 				ic.failed[coin] = time.Now()
 				if errors.Is(err, market.ErrNoIcon) { // none there: not asked again this run
@@ -172,7 +178,7 @@ func (a *application) symIcon(c *ui.Context, sym string, size float32) ui.Elemen
 	switch {
 	case strings.HasPrefix(sym, "US:"):
 		if b := a.icon(sym); b != nil {
-			return logoDisc(c, b, size)
+			return logoDisc(c, b, size, a.icons.light[sym])
 		}
 		return letterDisc(c, base, size)
 	case market.IsYahoo(sym):
@@ -183,11 +189,41 @@ func (a *application) symIcon(c *ui.Context, sym string, size float32) ui.Elemen
 
 // logoDisc is a company's logo on a white disc, a little inside it: the
 // logos are drawn for a white page, and a disc of their own size would cut
-// their corners off and lose a black one on the dark theme.
-func logoDisc(c *ui.Context, b *ui.Bitmap, size float32) ui.Element {
+// their corners off and lose a black one on the dark theme. Those drawn in
+// white, for a dark page (Invesco's QQQ), go on a dark one.
+func logoDisc(c *ui.Context, b *ui.Bitmap, size float32, light bool) ui.Element {
 	d := float32(math.Round(float64(size) * 0.72))
-	return ui.Box(c).Size(size, size).Radius(size/2).Shrink(0).Background(ui.Hex("#ffffff")).Border(1, ui.RGBA(0, 0, 0, 0.08)).Center().
+	bg := ui.Hex("#ffffff")
+	if light {
+		bg = ui.Hex("#1e222d")
+	}
+	return ui.Box(c).Size(size, size).Radius(size/2).Shrink(0).Background(bg).Border(1, ui.RGBA(0, 0, 0, 0.08)).Center().
 		Children(func() { ui.Image(c, b).Size(d, d) })
+}
+
+// whiteLogo is whether a logo is drawn in white on nothing: nearly all that
+// it covers near white.
+func whiteLogo(data []byte) bool {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return false
+	}
+	b := img.Bounds()
+	var covered, white int
+	for y := b.Min.Y; y < b.Max.Y; y += 2 {
+		for x := b.Min.X; x < b.Max.X; x += 2 {
+			r, g, bl, a := img.At(x, y).RGBA()
+			if a < 0x8000 {
+				continue
+			}
+			covered++
+			// Unpremultiplied, near white.
+			if r*0xffff/a > 0xe000 && g*0xffff/a > 0xe000 && bl*0xffff/a > 0xe000 {
+				white++
+			}
+		}
+	}
+	return covered > 0 && white*10 >= covered*9
 }
 
 // coinIcon is coin's icon, size across, as a disc: the picture, or its first

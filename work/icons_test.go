@@ -270,3 +270,16 @@ func TestStockLogos(t *testing.T) {
 		t.Fatal("a future's icon asked for")
 	}
 }
+
+// A logo drawn in white (QQQ's) goes on a dark disc, the rest on white.
+func TestWhiteLogo(t *testing.T) {
+	if !whiteLogo(iconPNG(t, color.RGBA{255, 255, 255, 255})) || whiteLogo(iconPNG(t, magenta)) || whiteLogo([]byte("not a picture")) {
+		t.Fatal("told white logos wrong")
+	}
+	dir := t.TempDir()
+	f := &fakeBinance{icon: iconPNG(t, color.RGBA{250, 250, 250, 255})}
+	a := iconApp(dir, f)
+	if iconOf(a, "US:QQQ") == nil || !a.icons.light["US:QQQ"] {
+		t.Fatal("QQQ's white logo goes on white")
+	}
+}

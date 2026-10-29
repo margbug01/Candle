@@ -249,9 +249,14 @@ func TestSessionButtons(t *testing.T) {
 		t.Fatal("the bars come from a feed of every hour")
 	}
 	a.loading, a.bars = false, fakeBars(600, 3_600_000)
+	a.quotes["CME:NQ"] = market.Ticker{Symbol: "CME:NQ", Open: 29900, Last: 29677.75}
 	tt.Frame()
 	if !tt.HasText(" · RTH") {
 		t.Fatal("the legend does not say RTH")
+	}
+	// After the regular hours the last bar is old: the top bar has the quote.
+	if !tt.HasText("29677.75") {
+		t.Fatal("the top bar shows the regular hours' last close, not the price now")
 	}
 	shot(t, tt, "future-rth")
 	a.open("CME:NQ", "1d")
