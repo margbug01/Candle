@@ -1,0 +1,256 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"hash/fnv"
+	"os"
+	"path/filepath"
+	"time"
+	"unicode"
+
+	"github.com/egoist/mygo/ui"
+)
+
+// The coins' icons go beside their names: in the watchlist, the search, the
+// top bar and the legend. Binance's website lists them (market.Binance.Icons),
+// and the list and the icons are kept in the cache folder, so each is
+// fetched once: ~/Library/Caches/Candle on macOS, %LOCALAPPDATA%\Candle on
+// Windows. Until a coin's icon is in, or when it has none, or binance.com is
+// out of reach (it takes a proxy from mainland China), its first letter on a
+// disc stands in.
+
+const (
+	iconListAge  = 7 * 24 * time.Hour // the list is asked for again after a week
+	iconRetry    = 10 * time.Minute   // what did not come is asked for again after this
+	iconParallel = 4                  // downloads at once: a search shows 50 coins
+)
+
+// icons is where the icons are at. Like the rest of application it belongs
+// to the main thread: the list and the icons come in with spawn and post.
+type icons struct {
+	dir   string // the cache folder, "" to keep nothing
+	list  func(context.Context) (map[string]string, error)
+	fetch func(ctx context.Context, url string) ([]byte, error)
+
+	urls     map[string]string // the icons' addresses by coin, once the list is in
+	listing  bool              // the list is on its way
+	asked    bool              // Binance gave the list this run
+	listFail time.Time         // when it last did not come
+	bitmaps  map[string]*ui.Bitmap
+	busy     map[string]bool      // coming
+	failed   map[string]time.Time // did not come, and when
+	slots    chan struct{}        // bounds the downloads
+}
+
+func newIcons(dir string, list func(context.Context) (map[string]string, error), fetch func(context.Context, string) ([]byte, error)) icons {
+	return icons{
+		dir: dir, list: list, fetch: fetch,
+		bitmaps: map[string]*ui.Bitmap{}, busy: map[string]bool{}, failed: map[string]time.Time{},
+		slots: make(chan struct{}, iconParallel),
+	}
+}
+
+// iconDir is the cache folder for the icons, "" when there is none.
+func iconDir() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "Candle")
+}
+
+// loadIcons reads the list of icons from the cache folder or, a week old or
+// missing, from Binance, keeping the old one if Binance does not answer.
+// remote asks Binance whatever the folder holds: for a coin the list kept
+// lacks, listed since.
+func (a *application) loadIcons(remote bool) {
+	ic := &a.icons
+	if ic.listing || time.Since(ic.listFail) < iconRetry || ic.urls != nil && !remote {
+		return
+	}
+	ic.listing = true
+	dir, list := ic.dir, ic.list
+	a.spawn(func() {
+		var urls map[string]string
+		fresh, asked := false, false
+		if !remote {
+			urls, fresh = readIconList(dir)
+		}
+		if !fresh {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			got, err := list(ctx)
+			cancel()
+			if err == nil {
+				urls, asked = got, true
+				writeIconList(dir, got)
+			}
+		}
+		a.post(func() {
+			ic.listing = false
+			ic.asked = ic.asked || asked
+			if urls == nil {
+				ic.listFail = time.Now()
+				return
+			}
+			ic.urls = urls
+		})
+	})
+}
+
+// icon is coin's icon, nil until it is in or when there is none. Asked for
+// the first time, it is read from the cache folder or downloaded.
+func (a *application) icon(coin string) *ui.Bitmap {
+	ic := &a.icons
+	if b := ic.bitmaps[coin]; b != nil {
+		return b
+	}
+	if ic.urls == nil {
+		a.loadIcons(false)
+		return nil
+	}
+	u := ic.urls[coin]
+	if u == "" && !ic.asked { // a coin listed since the list was kept
+		a.loadIcons(true)
+	}
+	if u == "" || ic.busy[coin] || time.Since(ic.failed[coin]) < iconRetry {
+		return nil
+	}
+	ic.busy[coin] = true
+	file := iconFile(ic.dir, coin, u)
+	fetch, slots := ic.fetch, ic.slots
+	a.spawn(func() {
+		data, err := os.ReadFile(file)
+		var b *ui.Bitmap
+		if err == nil {
+			b, err = ui.DecodeBitmap(data)
+		}
+		if err != nil { // not kept yet, or damaged
+			slots <- struct{}{}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			data, err = fetch(ctx, u)
+			cancel()
+			<-slots
+			if err == nil {
+				if b, err = ui.DecodeBitmap(data); err == nil {
+					writeFile(file, data)
+				}
+			}
+		}
+		a.post(func() {
+			delete(ic.busy, coin)
+			if err != nil {
+				ic.failed[coin] = time.Now()
+				return
+			}
+			delete(ic.failed, coin)
+			ic.bitmaps[coin] = b
+		})
+	})
+	return nil
+}
+
+// coinIcon is coin's icon, size across, as a disc: the picture, or its first
+// letter until there is one.
+func (a *application) coinIcon(c *ui.Context, coin string, size float32) ui.Element {
+	if b := a.icon(coin); b != nil {
+		return ui.Image(c, b).Size(size, size).Radius(size / 2).Shrink(0)
+	}
+	bg := discColor(coin)
+	return ui.Box(c).Size(size, size).Radius(size / 2).Shrink(0).Center().Background(bg).Children(func() {
+		// The letter lets the pointer through to the disc: in the legend the
+		// disc lets it through to the chart.
+		ui.Text(c, initial(coin)).FontSize(float32(int(size * 0.5))).FontWeight(600).TextColor(onColor(bg)).SingleLine().PassThrough()
+	})
+}
+
+// discColors are the stand-ins' colors, one for each coin by its name.
+var discColors = []ui.Color{
+	ui.Hex("#f7931a"), ui.Hex("#627eea"), ui.Hex("#26a17b"), ui.Hex("#e84142"), ui.Hex("#8247e5"),
+	ui.Hex("#2775ca"), ui.Hex("#f0b90b"), ui.Hex("#14b8a6"), ui.Hex("#ec4899"), ui.Hex("#64748b"),
+}
+
+func discColor(coin string) ui.Color {
+	h := fnv.New32a()
+	h.Write([]byte(coin))
+	return discColors[h.Sum32()%uint32(len(discColors))]
+}
+
+// initial is the first letter of coin, as 1000SATS's S; its first character
+// when it has no letter.
+func initial(coin string) string {
+	for _, r := range coin {
+		if unicode.IsLetter(r) {
+			return string(unicode.ToUpper(r))
+		}
+	}
+	for _, r := range coin {
+		return string(r)
+	}
+	return "?"
+}
+
+// iconFile is where coin's icon from u is kept: its name carries the
+// address, so an icon Binance changes is fetched again.
+func iconFile(dir, coin, u string) string {
+	if dir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(u))
+	name := coin
+	for _, r := range coin {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			name = "x" + hex.EncodeToString([]byte(coin)) // nothing a file name could choke on
+			break
+		}
+	}
+	return filepath.Join(dir, "icons", name+"-"+hex.EncodeToString(sum[:4]))
+}
+
+func iconListFile(dir string) string { return filepath.Join(dir, "icons.json") }
+
+// readIconList is the list kept in dir, if any, and whether it is under a
+// week old.
+func readIconList(dir string) (map[string]string, bool) {
+	if dir == "" {
+		return nil, false
+	}
+	f := iconListFile(dir)
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return nil, false
+	}
+	var urls map[string]string
+	if json.Unmarshal(data, &urls) != nil || len(urls) == 0 {
+		return nil, false
+	}
+	fi, err := os.Stat(f)
+	return urls, err == nil && time.Since(fi.ModTime()) < iconListAge
+}
+
+func writeIconList(dir string, urls map[string]string) {
+	if dir == "" {
+		return
+	}
+	if data, err := json.Marshal(urls); err == nil {
+		writeFile(iconListFile(dir), data)
+	}
+}
+
+// writeFile writes beside name and renames over it, so a reader never sees
+// half of it. An empty name keeps nothing.
+func writeFile(name string, data []byte) {
+	if name == "" || os.MkdirAll(filepath.Dir(name), 0o755) != nil {
+		return
+	}
+	tmp := name + ".tmp"
+	if os.WriteFile(tmp, data, 0o644) != nil {
+		os.Remove(tmp)
+		return
+	}
+	if os.Rename(tmp, name) != nil {
+		os.Remove(tmp)
+	}
+}

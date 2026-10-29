@@ -243,6 +243,9 @@ func (a *application) statusPage(c *ui.Context, t *ui.Theme, k palette) {
 	st := &a.set.Chart
 	section(c, t, "图表左上角的图例")
 	checkRow(c, &st.Title, "商品名称和周期", nil)
+	if st.Title {
+		checkRow(c, &st.Logo, "商品图标", nil)
+	}
 	checkRow(c, &st.Values, "开高低收", nil)
 	checkRow(c, &st.Change, "K线涨跌", nil)
 	checkRow(c, &st.VolumeValue, "成交量", nil)

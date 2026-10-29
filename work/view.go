@@ -14,7 +14,7 @@ import (
 
 const (
 	titleBarHeight = 44
-	watchW         = 300
+	watchW         = 330
 	notch          = 99 // DIPs a wheel notch scrolls on Windows: 3 lines of 33
 	zoomPerNotch   = 1.12
 	axisDrag       = 150 // DIPs dragged down the price axis to widen the prices e times
@@ -110,7 +110,10 @@ func divider(c *ui.Context, k palette) { ui.Box(c).Width(1).Height(20).Shrink(0)
 func (a *application) headline(c *ui.Context, t *ui.Theme, k palette) {
 	base, quote := a.names(a.symbol)
 	ui.Row(c).Shrink(0).Gap(10).Padding(0, 16).AlignItems(ui.Center).Children(func() {
-		ui.RichText(c, ui.Span{Text: base, Size: 16, Weight: 600}, ui.Span{Text: suffix(quote), Size: 13, Color: t.TextMuted}).SingleLine().Shrink(0)
+		ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
+			a.coinIcon(c, base, 22)
+			ui.RichText(c, ui.Span{Text: base, Size: 16, Weight: 600}, ui.Span{Text: suffix(quote), Size: 13, Color: t.TextMuted}).SingleLine().Shrink(0)
+		})
 		q, hasQ := a.quotes[a.symbol]
 		last, ok := q.Last, hasQ
 		if n := len(a.bars); n > 0 {
@@ -554,8 +557,11 @@ func (a *application) quoteRow(c *ui.Context, t *ui.Theme, k palette, sym string
 	}
 	row.Children(func() {
 		base, quote := a.names(sym)
-		ui.RichText(c, ui.Span{Text: base, Size: 13, Weight: 600}, ui.Span{Text: suffix(quote), Size: 11, Color: t.TextMuted}).
-			Grow(1).MinWidth(0).SingleLine()
+		ui.Row(c).Grow(1).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
+			a.coinIcon(c, base, 20)
+			ui.RichText(c, ui.Span{Text: base, Size: 13, Weight: 600}, ui.Span{Text: suffix(quote), Size: 11, Color: t.TextMuted}).
+				Grow(1).MinWidth(0).SingleLine()
+		})
 		price, change, col := "—", "", t.TextMuted
 		if hasQ {
 			price = a.priceText(sym, q.Last)

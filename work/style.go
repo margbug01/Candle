@@ -28,6 +28,7 @@ type style struct {
 
 	// 状态行
 	Title, Values, Change, VolumeValue bool
+	Logo                               bool // the coin's icon before its name
 
 	// 坐标
 	Scale      string // "", "percent", "log"
@@ -63,7 +64,7 @@ type style struct {
 func defaultStyle() style {
 	return style{
 		Body: true, Borders: true, Wick: true, Volume: true, Precision: -1,
-		Title: true, Values: true, Change: true, VolumeValue: true,
+		Title: true, Values: true, Change: true, VolumeValue: true, Logo: true,
 		NoOverlap: true, IndValues: true, Countdown: true, Weekday: true, DateFormat: "2006-01-02",
 		VertGrid: true, HorzGrid: true, BreakWidth: 1, TextSize: 11, TopMargin: 8, BottomMargin: 22, RightBars: 6,
 	}

@@ -74,6 +74,7 @@ type application struct {
 	allState  int // 0 not asked, 1 loading, 2 loaded, 3 failed
 	query     string
 	stopWatch context.CancelFunc
+	icons     icons // the coins' icons
 
 	// The drawings: the tool in hand, the drawing being drawn and the point
 	// it is at, the one selected and the point of it being dragged.
@@ -139,6 +140,7 @@ func newApplication(set settings, file string, bin market.Binance, post func(fun
 		scaleMode: set.Chart.Scale, homeShown: float32(set.Chart.RightBars),
 		textBox: map[int64]ui.Rect{},
 		nextID:  maxDrawingID(set.Drawings),
+		icons:   newIcons("", bin.Icons, bin.Icon),
 	}
 }
 
@@ -155,6 +157,7 @@ func (a *application) start() {
 	a.open(a.set.Symbol, a.set.Interval)
 	a.watchQuotes()
 	a.loadAll()
+	a.loadIcons(false)
 	a.spawn(a.syncClock)
 	a.watchUpdates()
 }

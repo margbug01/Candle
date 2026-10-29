@@ -71,6 +71,12 @@ func TestLive(t *testing.T) {
 	}
 	t.Logf("stream live after %v; newest bar %s", time.Since(t0).Round(time.Millisecond), time.UnixMilli(a.bars[len(a.bars)-1].T).Format("01-02 15:04"))
 	run("watchlist", 20*time.Second, func() bool { return len(a.quotes) == len(a.set.Watch) && len(a.infos) >= len(a.set.Watch) })
+	// The icons come from binance.com, which takes the system proxy from mainland China.
+	run("BTC's icon", 30*time.Second, func() bool { return a.icon("BTC") != nil })
+	if w, h := a.icons.bitmaps["BTC"].Size(); w < 32 || h < 32 {
+		t.Fatalf("BTC's icon is %dx%d", w, h)
+	}
+	t.Logf("%d icons listed; BTC's after %v", len(a.icons.urls), time.Since(t0).Round(time.Millisecond))
 	run("all markets and the clock", 60*time.Second, func() bool { return a.allState >= 2 && a.clock != 0 })
 	if a.allState != 2 {
 		t.Fatal("the market list did not load")
