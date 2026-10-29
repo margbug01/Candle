@@ -62,7 +62,7 @@ func TestSearchAll(t *testing.T) {
 		{"ai", 10, []string{"US:XOM", "US:ABNB"}}, // 埃克森美孚, 爱彼迎; not 百度's bAIdu
 		{"", 10, nil},
 	} {
-		if got := ids(searchAll(c.q, pairs, market.Futures, stocks, c.n)); !slices.Equal(got, c.want) {
+		if got := ids(searchAll(c.q, pairs, market.Futures, stocks, nil, c.n)); !slices.Equal(got, c.want) {
 			t.Errorf("%q: %v, want %v", c.q, got, c.want)
 		}
 	}
@@ -277,22 +277,5 @@ func TestSessionButtons(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("RTH") {
 		t.Fatal("RTH on a coin's chart")
-	}
-}
-
-// The search box takes letters as typed, with Pinyin on too: an input
-// method's letters are not the field's until chosen, and nothing would be
-// found meanwhile.
-func TestSearchTakesLetters(t *testing.T) {
-	a := testApp()
-	tt := newTester(a, true)
-	click(t, tt, "搜索交易对、期货、美股")
-	if active, noIME := tt.TextInputActive(); !active || !noIME {
-		t.Fatalf("the search box: text input %v, input method off %v", active, noIME)
-	}
-	tt.Type("sndk")
-	tt.Frame()
-	if a.query != "sndk" {
-		t.Fatalf("typed sndk: %q", a.query)
 	}
 }

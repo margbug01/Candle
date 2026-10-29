@@ -5,7 +5,6 @@ import (
 	"math"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -497,7 +496,7 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 func (a *application) watchlist(c *ui.Context, t *ui.Theme, k palette) {
 	ui.Column(c).Width(watchW).FillHeight().Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(k.line).Children(func() {
 		ui.Box(c).FillWidth().Shrink(0).Padding(12).Children(func() { a.searchBox(c, t, k) })
-		if strings.TrimSpace(a.query) != "" {
+		if a.searchQuery() != "" {
 			a.results(c, t, k)
 			return
 		}
@@ -519,18 +518,8 @@ func header(c *ui.Context, t *ui.Theme, title string) {
 func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 	ui.Row(c.Key("search")).FillWidth().Height(32).Padding(0, 4, 0, 10).Gap(6).AlignItems(ui.Center).Radius(6).Background(k.field).Children(func() {
 		ui.Icon(c, searchIcon).Size(14, 14).TextColor(t.TextMuted).Shrink(0)
-		in := ui.TextInput(c.Key("query"), &a.query).Grow(1).MinWidth(0).Background(ui.Transparent).Border(0, ui.Transparent).
-			Padding(0).FontSize(13).Placeholder("代码或拼音：PEPE、NQ、ywd").Label("搜索交易对、期货、美股").
-			// Letters go straight in, Pinyin on or not: an input method's
-			// letters are not the field's until chosen, so nothing would be
-			// found as one types. Chinese names go by their pinyin.
-			InputMethod(false)
-		if in.Submitted() {
-			if sym := a.firstFinding(); sym != "" {
-				a.pick(sym)
-			}
-		}
-		if a.query == "" {
+		a.searchField(c, t, k)
+		if a.query == "" && a.qb.compose == "" {
 			return
 		}
 		x := ui.ButtonBase(c.Key("clear")).Size(24, 24).Shrink(0).Center().Radius(4).Label("清空搜索").Cursor(ui.CursorPointer)
@@ -538,7 +527,7 @@ func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 			x.Background(k.hover)
 		}
 		if x.Children(func() { ui.Icon(c, clearIcon).Size(12, 12).TextColor(t.TextMuted) }).Clicked() {
-			a.query, a.searchKind = "", ""
+			a.clearSearch()
 		}
 	})
 }
@@ -553,9 +542,10 @@ const (
 
 func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 	note := func(s string) { ui.Text(c, s).FontSize(12).TextColor(t.TextMuted).Padding(4, 12) }
-	q := strings.TrimSpace(a.query)
+	q := a.searchQuery()
 	a.loadUS() // asked again a while after it did not come
 	a.searchUS(q)
+	a.searchZh(q)
 	if a.allState == 3 {
 		ui.Row(c).Padding(4, 12).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "币安的交易对列表没加载上").FontSize(12).TextColor(t.TextMuted)
@@ -567,7 +557,7 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 	groups := a.foundFor(q).groups
 	if len(groups) == 0 {
 		switch {
-		case a.allState < 2 || a.perpState < 2 && a.perpState != 0 || a.usAsking == q:
+		case a.allState < 2 || a.perpState < 2 && a.perpState != 0 || a.usAsking == q || a.zhAsking == q:
 			note("正在搜索「" + q + "」…")
 		default:
 			note("没有找到「" + q + "」")
@@ -624,6 +614,9 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 		a.perpNote(c, t)
 		if a.usAsking == q {
 			note("正在问 Yahoo 美股…")
+		}
+		if a.zhAsking == q {
+			note("正在按中文名找美股…")
 		}
 	})
 	switch {

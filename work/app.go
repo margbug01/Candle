@@ -40,10 +40,11 @@ const (
 // thread: background work hands its results over with post.
 type application struct {
 	bin   market.Binance
-	yahoo market.Yahoo // CME futures and US stocks
-	perp  market.Perp  // Binance's perpetuals
-	post  func(func()) // runs fn on the main thread
-	spawn func(func()) // starts background work; the tests drop it
+	yahoo market.Yahoo     // CME futures and US stocks
+	perp  market.Perp      // Binance's perpetuals
+	east  market.Eastmoney // the search by Chinese names
+	post  func(func())     // runs fn on the main thread
+	spawn func(func())     // starts background work; the tests drop it
 	file  string
 	set   settings
 
@@ -84,12 +85,16 @@ type application struct {
 	funding    market.Funding  // the perpetual on the chart's, once in
 	fundingOf  string          // whose funding is in funding
 	searchKind string          // the search's section shown whole, "" for the first few of each
-	query      string
+	query      string          // what is typed in the search box
+	qb         searchBox       // the box's caret, selection and composition
 	stopWatch  context.CancelFunc
 	icons      icons                          // the coins' icons
 	usFound    map[string][]market.Instrument // Yahoo's answers for US stocks, by query, until usList is in
 	usNames    map[string]string              // the stocks' names, from those answers
 	usAsking   string                         // the query being asked
+	zhFound    map[string][]market.Instrument // what Eastmoney's search found for queries in Chinese, by query
+	zhNames    map[string]string              // the US stocks' Chinese names, from those answers
+	zhAsking   string                         // the query being asked
 	usList     []market.Instrument            // the US stocks and ETFs, from Nasdaq's list
 	usByID     map[string]market.Instrument   // usList by ID
 	usLoading  bool
@@ -152,8 +157,9 @@ type application struct {
 
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {
 	return &application{
-		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, perp: market.Perp{HTTP: bin.HTTP}, post: post, file: file, set: set,
+		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, perp: market.Perp{HTTP: bin.HTTP}, east: market.Eastmoney{HTTP: bin.HTTP}, post: post, file: file, set: set,
 		usFound: map[string][]market.Instrument{}, usNames: map[string]string{}, priced: map[string]time.Time{},
+		zhFound: map[string][]market.Instrument{}, zhNames: map[string]string{},
 		usFetch:   func(ctx context.Context) ([]byte, error) { return market.USList(ctx, bin.HTTP) },
 		spawn:     func(f func()) { go f() },
 		view:      defaultView(),
@@ -455,7 +461,7 @@ func (a *application) foundFor(query string) *foundCache {
 	f := &a.found
 	if !f.done || f.q != q || f.gen != a.searchGen {
 		pairs := append(slices.Clip(a.all), a.perps...)
-		hits := searchAll(q, pairs, market.Futures, a.stocksFor(q), math.MaxInt)
+		hits := searchAll(q, pairs, market.Futures, a.stocksFor(q), a.zhFound[q], math.MaxInt)
 		*f = foundCache{done: true, q: q, gen: a.searchGen, hits: hits, groups: groupHits(hits)}
 	}
 	return f
@@ -464,7 +470,7 @@ func (a *application) foundFor(query string) *foundCache {
 // firstFinding is what Enter in the search opens: the best of the section
 // shown whole, or of all.
 func (a *application) firstFinding() string {
-	for _, g := range a.foundFor(a.query).groups {
+	for _, g := range a.foundFor(a.searchQuery()).groups {
 		if a.searchKind == "" || g.sec.key == a.searchKind {
 			return g.hits[0].Symbol
 		}
@@ -541,7 +547,7 @@ func (a *application) searchUS(query string) {
 	a.spawn(func() {
 		time.Sleep(200 * time.Millisecond)
 		a.post(func() {
-			if strings.TrimSpace(a.query) != q { // typed on: that query asks
+			if a.searchQuery() != q { // typed on: that query asks
 				if a.usAsking == q {
 					a.usAsking = ""
 				}
@@ -572,6 +578,52 @@ func (a *application) searchUS(query string) {
 	})
 }
 
+// searchZh asks Eastmoney's search for the US stocks a query in Chinese
+// names (闪迪, 海力士), a moment after the typing stops. Answers are kept by
+// query; one that did not come is asked again when the query comes back.
+func (a *application) searchZh(query string) {
+	q := strings.TrimSpace(query)
+	if !market.HasHan(q) || a.zhFound[q] != nil || a.zhAsking == q {
+		return
+	}
+	a.zhAsking = q
+	a.spawn(func() {
+		time.Sleep(150 * time.Millisecond)
+		a.post(func() {
+			if a.searchQuery() != q { // typed on: that query asks
+				if a.zhAsking == q {
+					a.zhAsking = ""
+				}
+				return
+			}
+			a.spawn(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				got, err := a.east.Suggest(ctx, q, 30)
+				a.post(func() {
+					if a.zhAsking == q {
+						a.zhAsking = ""
+					}
+					if err != nil {
+						return
+					}
+					if len(a.zhFound) > 200 {
+						clear(a.zhFound)
+					}
+					found := append([]market.Instrument{}, market.USStocks(got)...)
+					a.zhFound[q] = found
+					for _, in := range found {
+						if in.Alias != "" {
+							a.zhNames[in.ID] = in.Alias
+						}
+					}
+					a.searchGen++
+				})
+			})
+		})
+	})
+}
+
 // priceHits asks Yahoo for the prices of the futures and stocks among the
 // first results that have none, a moment after the typing stops: the results
 // show at once, the prices a moment after.
@@ -591,7 +643,7 @@ func (a *application) priceHits(q string, hits []market.Ticker) {
 	a.spawn(func() {
 		time.Sleep(150 * time.Millisecond)
 		a.post(func() {
-			if strings.TrimSpace(a.query) != q { // typed on: ask for these again when they show
+			if a.searchQuery() != q { // typed on: ask for these again when they show
 				for _, id := range ids {
 					delete(a.priced, id)
 				}
@@ -790,7 +842,7 @@ func (a *application) syncClock() {
 
 // pick shows sym and keeps it on the watchlist, at the top when it is new.
 func (a *application) pick(sym string) {
-	a.query, a.searchKind = "", ""
+	a.clearSearch()
 	if i := slices.Index(a.set.Folded, sectionOf(sym)); i >= 0 { // to show where it went
 		a.set.Folded = slices.Delete(slices.Clone(a.set.Folded), i, i+1)
 		a.save()
@@ -870,6 +922,9 @@ func (a *application) after(sym string) string {
 		in = popularByID[sym]
 	}
 	if zh, _, _ := strings.Cut(in.Alias, " "); zh != "" { // 英伟达, as the futures read in Chinese
+		return " " + zh
+	}
+	if zh := a.zhNames[sym]; zh != "" { // 闪迪, as Eastmoney calls it
 		return " " + zh
 	}
 	if s, ok := a.infos[sym]; ok && s.Desc != "" {

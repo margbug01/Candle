@@ -229,10 +229,10 @@ func TestSearch(t *testing.T) {
 		}
 		return s
 	}
-	if got := names(searchAll("btc", all, nil, nil, 10)); !slices.Equal(got, []string{"BTCUSDT", "BTCFDUSD", "WBTCUSDT", "ETHBTC"}) {
+	if got := names(searchAll("btc", all, nil, nil, nil, 10)); !slices.Equal(got, []string{"BTCUSDT", "BTCFDUSD", "WBTCUSDT", "ETHBTC"}) {
 		t.Fatalf("btc: %q", got)
 	}
-	if got := names(searchAll(" btc/usdt", all, nil, nil, 1)); !slices.Equal(got, []string{"BTCUSDT"}) {
+	if got := names(searchAll(" btc/usdt", all, nil, nil, nil, 1)); !slices.Equal(got, []string{"BTCUSDT"}) {
 		t.Fatalf("btc/usdt: %q", got)
 	}
 }

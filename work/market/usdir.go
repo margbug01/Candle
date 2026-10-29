@@ -142,7 +142,7 @@ var Popular = []struct{ Code, Zh, Py string }{
 	{"SOXL", "三倍做多半导体", "san bei zuo duo ban dao ti"}, {"SOXS", "三倍做空半导体", "san bei zuo kong ban dao ti"}, {"SMH", "半导体ETF", "ban dao ti"}, {"ARKK", "方舟创新ETF", "fang zhou chuang xin"}, {"GLD", "黄金ETF", "huang jin"},
 	{"SLV", "白银ETF", "bai yin"}, {"TLT", "20年美债ETF", "nian mei zhai"}, {"UVXY", "恐慌指数ETF", "kong huang zhi shu"}, {"KWEB", "中概互联网ETF", "zhong gai hu lian wang"}, {"FXI", "中国大盘股ETF", "zhong guo da pan gu"},
 	{"YINN", "三倍做多中国", "san bei zuo duo zhong guo"}, {"IBIT", "比特币ETF", "bi te bi"}, {"ETHA", "以太坊ETF", "yi tai fang"}, {"XLK", "科技ETF", "ke ji"}, {"XLF", "金融ETF", "jin rong"},
-	{"XLE", "能源ETF", "neng yuan"},
+	{"XLE", "能源ETF", "neng yuan"}, {"SNDK", "闪迪", "shan di"}, {"SKHY", "SK海力士 海力士", "hai li shi"}, {"WDC", "西部数据", "xi bu shu ju"}, {"STX", "希捷科技 希捷", "xi jie ke ji"},
 }
 
 // PopularOnly is the popular markets alone, for the search until the list

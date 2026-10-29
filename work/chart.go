@@ -408,7 +408,15 @@ func dayBreaks(bars []market.Bar, from, to int, ivMs int64, dayOf func(int64) in
 // Apple Inc.), then names with another word starting with it. On a par, pairs before
 // futures before stocks; USDT pairs before others, busiest first; the stocks
 // looked up most first, then the shortest codes.
-func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Instrument, limit int) []market.Ticker {
+//
+// found is what Eastmoney's search found for the query, best first: US
+// stocks by the Chinese names it knows them by (闪迪 SNDK), which add to
+// Nasdaq's list and are found as its own are; those it found by what their
+// names do not show (比特币 for Bitwise Bitcoin ETF) come last, in its
+// order. Pairs and perpetuals go by the Chinese names of their coins and
+// of what TradFi perpetuals trade (market.ZhNames: 比特币, 海力士), or of the
+// US stock they follow (英伟达 NVDAUSDT.P).
+func searchAll(query string, pairs []market.Ticker, futures, stocks, found []market.Instrument, limit int) []market.Ticker {
 	norm := strings.NewReplacer("/", "", "-", "", " ", "")
 	q := strings.ToUpper(norm.Replace(query))
 	if q == "" {
@@ -471,16 +479,57 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 	}
 	var hits []hit
 	usd := dollars(pairs)
+	// The Chinese names of the US stocks Eastmoney found, for the perpetuals
+	// following them; by code as Binance writes it (BRKB).
+	foundZh := map[string]string{}
+	for _, in := range found {
+		if in.Alias != "" {
+			foundZh[strings.ReplaceAll(in.Code, "-", "")] = in.Alias
+		}
+	}
+	// zhRank is how well a pair's coin or a perpetual's underlying matches by
+	// its Chinese names: the name itself, one holding it, or its pinyin from
+	// its start (btb, bitebi: 比特币; te is not). Two letters of pinyin come
+	// after the codes starting with them (bi: BIO, then BTC), and a
+	// perpetual found by the names of the US stock it follows after the
+	// stock (英伟: NVDA, then NVDAUSDT.P).
+	zhRank := func(base string, perp bool) int {
+		names, py, stock := zhNamesOf(base, perp, foundZh)
+		r := -1
+		for _, w := range strings.Fields(names) {
+			switch w = strings.ToUpper(w); {
+			case w == q:
+				return 0
+			case cjk && strings.Contains(w, q):
+				r = 1
+			}
+		}
+		if r < 0 && pinyinStarts(py, q) {
+			r = 1
+			if len(q) < 3 {
+				r = 2
+			}
+		}
+		if r > 0 && stock {
+			r = 2
+		}
+		return r
+	}
 	for _, t := range pairs {
 		code, from := t.Symbol, 0
-		if market.IsPerp(code) { // BTCUSDT.P reads as BTCUSDT, after the spot pair
+		perp := market.IsPerp(code)
+		if perp { // BTCUSDT.P reads as BTCUSDT, after the spot pair
 			code, from = strings.TrimSuffix(code, ".P"), 1
 		}
 		r := rankOf(code)
 		// The coin itself, in whatever money (BTCUSDT, BTCFDUSD, BTCTRY), and
 		// 1000PEPEUSDT.P as PEPE.
-		if base, _ := splitPair(code); base == q || iconCoin(base) == q {
+		base, _ := splitPair(code)
+		if base == q || iconCoin(base) == q {
 			r = 0
+		}
+		if z := zhRank(iconCoin(base), perp); z >= 0 && (r < 0 || z < r) {
+			r = z
 		}
 		if r < 0 {
 			continue
@@ -495,17 +544,49 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 2, at: i})
 		}
 	}
+	// Eastmoney's finds by ID, their places in its order, until met in stocks.
+	place := make(map[string]int, len(found))
+	for i, in := range found {
+		if _, ok := place[in.ID]; !ok {
+			place[in.ID] = i
+		}
+	}
+	stock := func(in market.Instrument, zh string, at int) {
+		r := marketRank(in, zh)
+		if r < 0 && at >= 0 {
+			r = 5 // Eastmoney knows why
+		}
+		if r < 0 {
+			return
+		}
+		pop := in.Rank
+		switch {
+		case pop > 0:
+		case at >= 0:
+			pop = len(market.Popular) + 1 + at
+		default:
+			pop = math.MaxInt
+		}
+		from := 3
+		// NVDA itself before Binance's NVDA perpetual; 闪迪's SNDK too.
+		if r == 0 && (in.Rank > 0 || cjk) {
+			from = -1
+		}
+		hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: from, pop: pop, at: len(in.Code)})
+	}
 	for _, in := range stocks {
-		if r := marketRank(in, in.Alias); r >= 0 {
-			pop := in.Rank
-			if pop == 0 {
-				pop = math.MaxInt
+		zh, at := in.Alias, -1
+		if len(place) > 0 {
+			if i, ok := place[in.ID]; ok {
+				zh, at = strings.TrimSpace(zh+" "+found[i].Alias), i
+				delete(place, in.ID)
 			}
-			from := 3
-			if r == 0 && in.Rank > 0 { // NVDA itself before Binance's NVDA perpetual
-				from = -1
-			}
-			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: from, pop: pop, at: len(in.Code)})
+		}
+		stock(in, zh, at)
+	}
+	for i, in := range found { // those the list lacks: new, or the list not in yet
+		if at, ok := place[in.ID]; ok && at == i {
+			stock(in, in.Alias, i)
 		}
 	}
 	slices.SortStableFunc(hits, func(a, b hit) int {
@@ -543,6 +624,51 @@ func pinyinMatch(py, q string) bool {
 	}
 	return false
 }
+
+// pinyinStarts is whether q, two letters or more, starts the pinyin of a
+// name, in its initials (btb) or spelled (bite): what a pair is found by,
+// with its many quote assets, where a stock's pinyin is found anywhere.
+func pinyinStarts(py, q string) bool {
+	if len(q) < 2 || py == "" || strings.ContainsFunc(q, func(r rune) bool { return r < 'A' || r > 'Z' }) {
+		return false
+	}
+	q = strings.ToLower(q)
+	syl := strings.Fields(py)
+	var initials strings.Builder
+	for _, s := range syl {
+		initials.WriteByte(s[0])
+	}
+	return strings.HasPrefix(initials.String(), q) || strings.HasPrefix(strings.Join(syl, ""), q)
+}
+
+// zhNamesOf is the Chinese names, and their pinyin, of a pair's coin or a
+// perpetual's underlying: market.ZhNames', or a perpetual's following a US
+// stock, the stock's: a popular one's, and those Eastmoney found (found, by
+// code as Binance writes it).
+func zhNamesOf(base string, perp bool, found map[string]string) (names, py string, stock bool) {
+	if z, ok := market.ZhNames[base]; ok {
+		return z.Zh, z.Py, false
+	}
+	if !perp {
+		return "", "", false
+	}
+	if p, ok := popularByCode[base]; ok {
+		names, py = p.Zh, p.Py
+	}
+	if f := found[base]; f != "" && !strings.Contains(names, f) {
+		names = strings.TrimSpace(names + " " + f)
+	}
+	return names, py, names != ""
+}
+
+// popularByCode are market.Popular's by code as Binance writes it: BRKB.
+var popularByCode = func() map[string]struct{ Zh, Py string } {
+	m := map[string]struct{ Zh, Py string }{}
+	for _, p := range market.Popular {
+		m[strings.ReplaceAll(p.Code, "-", "")] = struct{ Zh, Py string }{p.Zh, p.Py}
+	}
+	return m
+}()
 
 // quoteAssets are the money Binance's pairs are priced in, the stablecoins
 // first, for telling a pair's coin from its money by the name's end.

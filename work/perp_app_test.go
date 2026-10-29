@@ -234,7 +234,7 @@ func TestSearchRanksPairsInDollars(t *testing.T) {
 		{Symbol: "BTCDOMUSDT.P", Last: 5584, QuoteVolume: 1e7},
 	}
 	var got []string
-	for _, h := range searchAll("btc", pairs, nil, nil, 10) {
+	for _, h := range searchAll("btc", pairs, nil, nil, nil, 10) {
 		got = append(got, h.Symbol)
 	}
 	if want := []string{"BTCUSDT", "BTCUSDC", "BTCIDR", "BTCJPY", "BTCDOMUSDT.P", "ETHBTC"}; !slices.Equal(got, want) {
