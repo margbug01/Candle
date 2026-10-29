@@ -197,7 +197,7 @@ app 的名字、bundle id 和版本在 `work/mygo.json`。没配开发者证书�
 - 界面测试用 MyGo 的 `ui.Tester` 离屏渲染，真的去点按钮、拖图表；测试不联网。`CANDLE_SHOTS=<文件夹> go test` 会把画面存成 PNG。
 - `CANDLE_LIVE=1 go test -run TestLive .` 真连 Binance，跑一遍加载、实时推送、往前补页，并核对指标的增量计算和整段重算一致。
 - README 的截图是假数据：`CANDLE_README=<文件夹> go test -run TestReadmeShots .`，再回到仓库根目录 `python tools/shots.py <文件夹> docs/screenshots`（要 Pillow）。
-- 图标的母版是 [docs/icon.svg](docs/icon.svg)，顶栏用的是去掉底板的 [docs/logo.svg](docs/logo.svg)。exe 的图标、版本和 manifest 在 `work/rsrc_windows_amd64.syso`，改了用 go-winres 重新生成：
+- 图标的母版是 [docs/icon.svg](docs/icon.svg)。exe 的图标、版本和 manifest 在 `work/rsrc_windows_amd64.syso`，改了用 go-winres 重新生成：
 
 ```powershell
 go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon assets/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.2.2 --file-version 0.2.2 --original-filename Candle.exe
