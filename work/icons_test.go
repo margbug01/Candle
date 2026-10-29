@@ -262,7 +262,8 @@ func TestStockLogos(t *testing.T) {
 	for range 3 {
 		a.icon("US:ZZZZ")
 	}
-	if f.fetches != 2 || a.icon("US:ZZZZ") != nil {
+	a.icons.failed["US:ZZZZ"] = a.icons.failed["US:ZZZZ"].Add(-iconRetry - time.Minute) // a while later
+	if a.icon("US:ZZZZ") != nil || f.fetches != 2 {
 		t.Fatalf("a stock without a logo: %d fetches", f.fetches)
 	}
 	if a.icon("CME:NQ") != nil || f.fetches != 2 {

@@ -35,6 +35,7 @@ func TestParseUSList(t *testing.T) {
 		"Y|ACAQU|Acme Acquisition Corp - Units|Q|S|N|100|N|N||ACAQU|N",
 		"Y|ACAQR|Acme Acquisition Corp - Rights|Q|S|N|100|N|N||ACAQR|N",
 		"Y|UNH|UnitedHealth Group Incorporated Common Stock (DE)|N| |N|100|N||UNH|UNH|N",
+		"Y|ACME.U|Acme Acquisition Corp|N| |N|100|N||ACME.U|ACME.U|N", // a unit by its code alone
 	))
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +49,7 @@ func TestParseUSList(t *testing.T) {
 			t.Errorf("%s: %+v", code, in)
 		}
 	}
-	for _, code := range []string{"ZZTEST", "ABR$D", "AAC.W", "AAC-W", "ACAQU", "ACAQR"} {
+	for _, code := range []string{"ZZTEST", "ABR$D", "AAC.W", "AAC-W", "ACAQU", "ACAQR", "ACME-U"} {
 		if _, ok := by[code]; ok {
 			t.Errorf("%s is in the list", code)
 		}

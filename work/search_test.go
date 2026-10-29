@@ -130,6 +130,16 @@ func TestSearchShowsAtOnce(t *testing.T) {
 			t.Fatal("no price")
 		}
 	}
+	// Long enough for a search of Yahoo's, a moment after the typing, to come.
+	for end := time.After(500 * time.Millisecond); ; {
+		select {
+		case f := <-queue:
+			f()
+			continue
+		case <-end:
+		}
+		break
+	}
 	tt.Frame()
 	if !tt.HasText("215.38") || !tt.HasText("-1.17%") || sparks.Load() != 1 || searches.Load() != 0 {
 		t.Fatalf("price shown %v, %d price requests, %d searches of Yahoo's", tt.HasText("215.38"), sparks.Load(), searches.Load())
