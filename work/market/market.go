@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // Bar is one candle. T is the open time in Unix milliseconds.
@@ -40,6 +41,11 @@ func get(ctx context.Context, c *http.Client, u string) ([]byte, error) {
 	}
 	// Yahoo answers 429 to curl's and Go's default user agents.
 	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if strings.Contains(u, ".eastmoney.com/") || strings.Contains(u, "/api/qt/") {
+		// As Eastmoney's own quote pages ask: it shuts out who asks otherwise
+		// and too much.
+		req.Header.Set("Referer", "https://quote.eastmoney.com/")
+	}
 	res, err := c.Do(req)
 	if err != nil {
 		return nil, err

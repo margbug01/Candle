@@ -79,8 +79,11 @@ func (e Eastmoney) Klines(ctx context.Context, symbol, interval string, end int6
 	}
 	var bars []Bar
 	if klt < 101 {
-		// All the minutes there are, in one request: a few hundred KB at most.
-		bars, err = e.klines(ctx, in, klt, "20500101", 100_000)
+		// All the minutes there are, in one request: a day of 1 minute (240
+		// in Shanghai, 330 in Hong Kong), a month and a half of 5 and 15
+		// (about 1,600 and 550 in Hong Kong). Asking for more than there
+		// could be looks like scraping to Eastmoney, which shuts out who does.
+		bars, err = e.klines(ctx, in, klt, "20500101", map[int]int{1: 400, 5: 2500, 15: 900}[klt])
 	} else {
 		// A page of days or weeks dated up to end's day, the one opening
 		// after end (that day's own) left out below.

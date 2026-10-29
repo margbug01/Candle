@@ -14,12 +14,15 @@ func TestListedLive(t *testing.T) {
 	if os.Getenv("CANDLE_LIVE") == "" {
 		t.Skip("CANDLE_LIVE=1 asks Eastmoney and Yahoo")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	e := Eastmoney{}
-	for _, sym := range []string{"SSE:600795", "SSE:000001", "SZSE:399006", "SSE:000300", "SSE:000688", "HKEX:00700", "HKEX:HSI", "HKEX:HSTECH", "HKEX:HSCEI"} {
+	// Gently: Eastmoney shuts out an address asking much in a hurry, for an
+	// hour or so (sixty-odd requests in ten seconds did).
+	for _, sym := range []string{"SSE:600795", "SSE:000001", "HKEX:00700", "HKEX:HSI"} {
 		in, _ := InstrumentOf(sym)
 		for _, iv := range []string{"1m", "5m", "15m", "1h", "4h", "1d", "1w"} {
+			time.Sleep(time.Second)
 			bars, err := e.Klines(ctx, sym, iv, 0, 300)
 			if err != nil || len(bars) == 0 {
 				t.Fatalf("%s %s: %d bars, %v", sym, iv, len(bars), err)

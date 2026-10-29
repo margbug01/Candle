@@ -91,6 +91,10 @@ type fakeEast struct {
 
 func (f *fakeEast) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	if r.Header.Get("Referer") != "https://quote.eastmoney.com/" {
+		http.Error(w, "", http.StatusForbidden)
+		return
+	}
 	f.mu.Lock()
 	f.asked = append(f.asked, r.URL.Path+"?"+r.URL.RawQuery)
 	f.mu.Unlock()
@@ -187,7 +191,7 @@ func TestEastmoneyKlines(t *testing.T) {
 	if got := times(one, shanghai); !slices.Equal(got, []string{"10-29 09:30", "10-29 13:00"}) || one[0].V != 120000 || one[0].O != 5.30 || one[0].C != 5.31 || one[0].H != 5.32 || one[0].L != 5.29 {
 		t.Fatalf("1m: %v %+v", got, one)
 	}
-	if a := f.last(); !strings.Contains(a, "secid=1.600795") || !strings.Contains(a, "klt=1&") || !strings.Contains(a, "fqt=1") {
+	if a := f.last(); !strings.Contains(a, "secid=1.600795") || !strings.Contains(a, "klt=1&lmt=400") || !strings.Contains(a, "fqt=1") {
 		t.Fatalf("asked %s", a)
 	}
 	for _, c := range []struct {
@@ -202,6 +206,9 @@ func TestEastmoneyKlines(t *testing.T) {
 		{"HKEX:00700", "4h", hongKong, []string{"10-29 09:30", "10-29 14:00"}, 42},
 	} {
 		bars := get(c.sym, c.iv, 0, 100)
+		if !strings.Contains(f.last(), "klt=5&lmt=2500") {
+			t.Errorf("%s %s: asked %s", c.sym, c.iv, f.last())
+		}
 		if got := times(bars, c.loc); !slices.Equal(got, c.want) {
 			t.Errorf("%s %s: %v, want %v", c.sym, c.iv, got, c.want)
 			continue
