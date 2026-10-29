@@ -180,9 +180,7 @@ func TestSearchFindsStocksAndFutures(t *testing.T) {
 		t.Fatal("Apple is not in the results with its move")
 	}
 	shot(t, tt, "search-stock")
-	tt.ClickAt(1320-watchW/2, titleBarHeight+28+44+20)
-	tt.Frame()
-	tt.Frame()
+	click(t, tt, "AAPL 苹果")
 	if a.symbol != "US:AAPL" || a.set.Watch[0] != "US:AAPL" || a.query != "" {
 		t.Fatalf("after picking Apple: showing %s, watch %v", a.symbol, a.set.Watch)
 	}

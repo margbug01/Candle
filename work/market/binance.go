@@ -233,7 +233,13 @@ func (b Binance) Watch(ctx context.Context, symbols []string, fn func(Ticker)) e
 const silence = 60 * time.Second
 
 func (b Binance) stream(ctx context.Context, path string, fn func([]byte) error) error {
-	c, _, err := websocket.Dial(ctx, binanceWS+path, &websocket.DialOptions{HTTPClient: b.HTTP})
+	return streamFrom(ctx, b.HTTP, binanceWS+path, fn)
+}
+
+// streamFrom reads the WebSocket at u, handing each message to fn, until ctx
+// ends, the connection drops, it says nothing for a while or fn fails.
+func streamFrom(ctx context.Context, client *http.Client, u string, fn func([]byte) error) error {
+	c, _, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: client})
 	if err != nil {
 		return err
 	}

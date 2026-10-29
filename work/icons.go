@@ -184,7 +184,18 @@ func (a *application) symIcon(c *ui.Context, sym string, size float32) ui.Elemen
 	case market.IsYahoo(sym):
 		return letterDisc(c, base, size)
 	}
-	return a.coinIcon(c, base, size)
+	return a.coinIcon(c, iconCoin(base), size)
+}
+
+// iconCoin is the coin whose icon a market's goes by: a perpetual counted in
+// thousands, 1000PEPE, has PEPE's.
+func iconCoin(base string) string {
+	for _, p := range []string{"1000000", "10000", "1000", "1M"} {
+		if c, ok := strings.CutPrefix(base, p); ok && c != "" && c[0] >= 'A' && c[0] <= 'Z' {
+			return c
+		}
+	}
+	return base
 }
 
 // logoDisc is a company's logo on a white disc, a little inside it: the

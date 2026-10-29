@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -548,6 +549,16 @@ func (a *application) legendSpans(k palette, i int) (title, spans []ui.Span) {
 			{Text: "  ·  " + iv.label + "  ·  " + venue(a.symbol) + map[bool]string{true: " · RTH"}[a.rth()], Size: 12, Color: k.muted}}
 		if !market.IsYahoo(a.symbol) { // a pair reads as one name: BTC/USDT
 			title[1].Size, title[1].Weight, title[1].Color = 14, 600, k.text
+		}
+		if market.IsPerp(a.symbol) { // BTC/USDT, then 永续 and the funding
+			_, quote := a.names(a.symbol)
+			title[1].Text = suffix(quote)
+			title = slices.Insert(title, 2, ui.Span{Text: " " + a.perpKind(a.symbol), Size: 12, Color: k.muted})
+			if f := a.funding; a.fundingOf == a.symbol {
+				left := max(f.Next-time.Now().UnixMilli(), 0) / 1000
+				title = append(title, ui.Span{Text: fmt.Sprintf("  ·  标记 %s  ·  资金费率 %+.4f%%  %02d:%02d:%02d",
+					a.priceText(a.symbol, f.Mark), f.Rate*100, left/3600, left/60%60, left%60), Size: 12, Color: k.muted})
+			}
 		}
 	}
 	if st.Values {

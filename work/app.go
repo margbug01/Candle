@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,6 +41,7 @@ const (
 type application struct {
 	bin   market.Binance
 	yahoo market.Yahoo // CME futures and US stocks
+	perp  market.Perp  // Binance's perpetuals
 	post  func(func()) // runs fn on the main thread
 	spawn func(func()) // starts background work; the tests drop it
 	file  string
@@ -73,25 +75,30 @@ type application struct {
 	clock            int64 // Binance's clock minus this machine's, ms
 
 	// The watchlist and the search.
-	infos     map[string]market.Symbol
-	quotes    map[string]market.Ticker
-	all       []market.Ticker
-	allState  int // 0 not asked, 1 loading, 2 loaded, 3 failed
-	query     string
-	stopWatch context.CancelFunc
-	icons     icons                          // the coins' icons
-	usFound   map[string][]market.Instrument // Yahoo's answers for US stocks, by query, until usList is in
-	usNames   map[string]string              // the stocks' names, from those answers
-	usAsking  string                         // the query being asked
-	usList    []market.Instrument            // the US stocks and ETFs, from Nasdaq's list
-	usByID    map[string]market.Instrument   // usList by ID
-	usLoading bool
-	usFailed  time.Time // when the list last did not come
-	usFetch   func(context.Context) ([]byte, error)
-	searchGen int // grows as what the search looks through changes
-	watchList ui.ListState
-	found     foundCache
-	priced    map[string]time.Time // when the results' prices were asked for
+	infos      map[string]market.Symbol
+	quotes     map[string]market.Ticker
+	all        []market.Ticker
+	allState   int             // 0 not asked, 1 loading, 2 loaded, 3 failed
+	perps      []market.Ticker // every perpetual, for the search
+	perpState  int             // as allState
+	funding    market.Funding  // the perpetual on the chart's, once in
+	fundingOf  string          // whose funding is in funding
+	searchKind string          // the search's section shown whole, "" for the first few of each
+	query      string
+	stopWatch  context.CancelFunc
+	icons      icons                          // the coins' icons
+	usFound    map[string][]market.Instrument // Yahoo's answers for US stocks, by query, until usList is in
+	usNames    map[string]string              // the stocks' names, from those answers
+	usAsking   string                         // the query being asked
+	usList     []market.Instrument            // the US stocks and ETFs, from Nasdaq's list
+	usByID     map[string]market.Instrument   // usList by ID
+	usLoading  bool
+	usFailed   time.Time // when the list last did not come
+	usFetch    func(context.Context) ([]byte, error)
+	searchGen  int // grows as what the search looks through changes
+	watchList  ui.ListState
+	found      foundCache
+	priced     map[string]time.Time // when the results' prices were asked for
 
 	// The drawings: the tool in hand, the drawing being drawn and the point
 	// it is at, the one selected and the point of it being dragged.
@@ -145,7 +152,7 @@ type application struct {
 
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {
 	return &application{
-		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, post: post, file: file, set: set,
+		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, perp: market.Perp{HTTP: bin.HTTP}, post: post, file: file, set: set,
 		usFound: map[string][]market.Instrument{}, usNames: map[string]string{}, priced: map[string]time.Time{},
 		usFetch:   func(ctx context.Context) ([]byte, error) { return market.USList(ctx, bin.HTTP) },
 		spawn:     func(f func()) { go f() },
@@ -176,6 +183,7 @@ func (a *application) start() {
 	a.open(a.set.Symbol, a.set.Interval)
 	a.watchQuotes()
 	a.loadAll()
+	a.loadPerps()
 	a.loadUS()
 	a.loadIcons(false)
 	a.spawn(a.syncClock)
@@ -214,6 +222,30 @@ func (a *application) open(sym, iv string) {
 	ctx, gen, feed := a.ctx, a.gen, a.barFeed(sym)
 	_, known := a.infos[sym]
 	a.spawn(func() { a.feed(ctx, gen, feed, sym, iv, !known) })
+	if market.IsPerp(sym) {
+		perp := a.perp
+		a.spawn(func() { a.followFunding(ctx, gen, perp, sym) })
+	}
+}
+
+// followFunding asks for the perpetual's mark price and funding every half
+// minute while it is on the chart.
+func (a *application) followFunding(ctx context.Context, gen int, perp market.Perp, sym string) {
+	for {
+		f, err := perp.Funding(ctx, sym)
+		if err == nil {
+			a.post(func() {
+				if gen == a.gen {
+					a.funding, a.fundingOf = f, sym
+				}
+			})
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
 }
 
 // feed loads the newest page, then follows the live bar, reconnecting with a
@@ -412,12 +444,32 @@ func (a *application) follow(ctx context.Context, feed market.Feed, list []strin
 // findings are what the search shows for query: Binance's pairs, the
 // futures and the US stocks. Asked every frame, it searches once a query.
 func (a *application) findings(query string, limit int) []market.Ticker {
+	hits := a.foundFor(query).hits
+	return hits[:min(len(hits), limit)]
+}
+
+// foundFor is what the search finds for query, all of it best first and by
+// section, searched once a query.
+func (a *application) foundFor(query string) *foundCache {
 	q := strings.TrimSpace(query)
 	f := &a.found
-	if f.q != q || f.gen != a.searchGen || f.limit != limit {
-		*f = foundCache{q: q, gen: a.searchGen, limit: limit, hits: searchAll(q, a.all, market.Futures, a.stocksFor(q), limit)}
+	if !f.done || f.q != q || f.gen != a.searchGen {
+		pairs := append(slices.Clip(a.all), a.perps...)
+		hits := searchAll(q, pairs, market.Futures, a.stocksFor(q), math.MaxInt)
+		*f = foundCache{done: true, q: q, gen: a.searchGen, hits: hits, groups: groupHits(hits)}
 	}
-	return f.hits
+	return f
+}
+
+// firstFinding is what Enter in the search opens: the best of the section
+// shown whole, or of all.
+func (a *application) firstFinding() string {
+	for _, g := range a.foundFor(a.query).groups {
+		if a.searchKind == "" || g.sec.key == a.searchKind {
+			return g.hits[0].Symbol
+		}
+	}
+	return ""
 }
 
 // stocksFor is the US stocks the search looks through: Nasdaq's list, or
@@ -564,9 +616,34 @@ func (a *application) priceHits(q string, hits []market.Ticker) {
 // foundCache is the search's last results, for the query, the generation of
 // what it looked through and how many it wanted.
 type foundCache struct {
-	q          string
-	gen, limit int
-	hits       []market.Ticker
+	done   bool
+	q      string
+	gen    int
+	hits   []market.Ticker
+	groups []hitGroup
+}
+
+// A hitGroup is the search's findings in a section of the watchlist's.
+type hitGroup struct {
+	sec  watchSection
+	hits []market.Ticker // best first
+}
+
+// groupHits parts hits, best first, by section, the section of the best
+// first: typing btc puts the coins first, nvda the stocks.
+func groupHits(hits []market.Ticker) []hitGroup {
+	var out []hitGroup
+	at := map[string]int{}
+	for _, h := range hits {
+		key := sectionOf(h.Symbol)
+		i, ok := at[key]
+		if !ok {
+			i, at[key] = len(out), len(out)
+			out = append(out, hitGroup{sec: sections[slices.IndexFunc(sections, func(s watchSection) bool { return s.key == key })]})
+		}
+		out[i].hits = append(out[i].hits, h)
+	}
+	return out
 }
 
 // popularByID are the popular US markets by ID, for their names before
@@ -582,8 +659,11 @@ var popularByID = func() map[string]market.Instrument {
 // feedOf is where sym's bars come from: Yahoo for "CME:" and "US:" names,
 // Binance for the rest.
 func (a *application) feedOf(sym string) market.Feed {
-	if market.IsYahoo(sym) {
+	switch {
+	case market.IsYahoo(sym):
 		return a.yahoo
+	case market.IsPerp(sym):
+		return a.perp
 	}
 	return a.bin
 }
@@ -597,7 +677,7 @@ func (a *application) barFeed(sym string) market.Feed {
 		y.RTH = a.set.FuturesRTH
 		return y
 	}
-	return a.bin
+	return a.feedOf(sym)
 }
 
 // rth is whether the chart shows a future's regular trading hours only: the
@@ -609,15 +689,18 @@ func (a *application) rth() bool {
 
 // byFeed splits names into Binance's and Yahoo's, keeping their order.
 func byFeed(names []string) (groups [][]string) {
-	var bin, yahoo []string
+	var bin, perp, yahoo []string
 	for _, n := range names {
-		if market.IsYahoo(n) {
+		switch {
+		case market.IsYahoo(n):
 			yahoo = append(yahoo, n)
-		} else {
+		case market.IsPerp(n):
+			perp = append(perp, n)
+		default:
 			bin = append(bin, n)
 		}
 	}
-	for _, g := range [][]string{bin, yahoo} {
+	for _, g := range [][]string{bin, perp, yahoo} {
 		if len(g) > 0 {
 			groups = append(groups, g)
 		}
@@ -645,6 +728,29 @@ func (a *application) lookup(ctx context.Context, names []string) {
 		for _, s := range syms {
 			a.infos[s.Name] = s
 		}
+	})
+}
+
+// loadPerps fetches every perpetual once, for the search. It takes a proxy
+// from mainland China; without one the search has no perpetuals.
+func (a *application) loadPerps() {
+	if a.perpState == 1 || a.perpState == 2 {
+		return
+	}
+	a.perpState = 1
+	perp := a.perp
+	a.spawn(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		all, err := perp.Tickers(ctx)
+		a.post(func() {
+			if err != nil {
+				a.perpState = 3
+				return
+			}
+			a.perps, a.perpState = all, 2
+			a.searchGen++
+		})
 	})
 }
 
@@ -684,7 +790,7 @@ func (a *application) syncClock() {
 
 // pick shows sym and keeps it on the watchlist, at the top when it is new.
 func (a *application) pick(sym string) {
-	a.query = ""
+	a.query, a.searchKind = "", ""
 	if i := slices.Index(a.set.Folded, sectionOf(sym)); i >= 0 { // to show where it went
 		a.set.Folded = slices.Delete(slices.Clone(a.set.Folded), i, i+1)
 		a.save()
@@ -715,6 +821,7 @@ func (a *application) names(sym string) (base, quote string) {
 	if in, ok := market.InstrumentOf(sym); ok {
 		return in.Code, ""
 	}
+	sym = strings.TrimSuffix(sym, ".P") // a perpetual: as its pair
 	for _, q := range []string{"USDT", "USDC", "FDUSD", "BTC", "ETH", "BNB"} {
 		if b, ok := strings.CutSuffix(sym, q); ok && b != "" {
 			return b, q
@@ -758,6 +865,9 @@ func (a *application) tick(sym string) float64 {
 // what it is for a future or a stock: " 纳指 E-mini", " Apple Inc.".
 func (a *application) after(sym string) string {
 	_, quote := a.names(sym)
+	if market.IsPerp(sym) {
+		return suffix(quote) + " " + a.perpKind(sym)
+	}
 	if !market.IsYahoo(sym) {
 		return suffix(quote)
 	}
@@ -806,10 +916,21 @@ func (a *application) dayOf() func(int64) int64 {
 	return midnights(a.set.Chart.breakLoc())
 }
 
+// perpKind is what a perpetual is: 永续, or for one on a stock or gold,
+// 股票永续 or 商品永续.
+func (a *application) perpKind(sym string) string {
+	if s := a.infos[sym]; s.Desc != "" {
+		return s.Desc
+	}
+	return "永续"
+}
+
 // venue is where sym trades, and how late its prices are, for the legend.
 func venue(sym string) string {
 	in, ok := market.InstrumentOf(sym)
 	switch {
+	case !ok && market.IsPerp(sym):
+		return "币安永续"
 	case !ok:
 		return "Binance"
 	case in.Delay > 0:

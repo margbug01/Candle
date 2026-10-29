@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+
+	"candle/market"
 )
 
 // The watchlist goes by market: coins, futures and US stocks each under a
@@ -16,7 +18,7 @@ import (
 type watchSection struct{ key, label string }
 
 // sections are the markets the watchlist parts, in their first order.
-var sections = []watchSection{{"crypto", "加密货币"}, {"futures", "期货"}, {"us", "美股"}}
+var sections = []watchSection{{"crypto", "加密货币"}, {"perp", "永续合约"}, {"futures", "期货"}, {"us", "美股"}}
 
 // sectionOf is the section a market goes in.
 func sectionOf(sym string) string {
@@ -25,19 +27,32 @@ func sectionOf(sym string) string {
 		return "futures"
 	case strings.HasPrefix(sym, "US:"):
 		return "us"
+	case market.IsPerp(sym):
+		return "perp"
 	}
 	return "crypto"
 }
 
-// sectionOrder is the sections in the order the settings keep, those they do
-// not name after them, in their first order.
+// sectionOrder is the sections in the order the settings keep. One they do
+// not name (one added since: the perpetuals) goes after the one it follows
+// at first, the perpetuals after the coins.
 func (a *application) sectionOrder() []watchSection {
 	var out []watchSection
-	for _, k := range append(slices.Clone(a.set.Sections), "crypto", "futures", "us") {
+	for _, k := range a.set.Sections {
 		i := slices.IndexFunc(sections, func(s watchSection) bool { return s.key == k })
 		if i >= 0 && !slices.Contains(out, sections[i]) {
 			out = append(out, sections[i])
 		}
+	}
+	for i, s := range sections {
+		if slices.Contains(out, s) {
+			continue
+		}
+		at := 0
+		if i > 0 {
+			at = slices.Index(out, sections[i-1]) + 1
+		}
+		out = slices.Insert(out, at, s)
 	}
 	return out
 }

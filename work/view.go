@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -525,8 +526,8 @@ func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 			// found as one types. Chinese names go by their pinyin.
 			InputMethod(false)
 		if in.Submitted() {
-			if hits := a.findings(a.query, 1); len(hits) == 1 {
-				a.pick(hits[0].Symbol)
+			if sym := a.firstFinding(); sym != "" {
+				a.pick(sym)
 			}
 		}
 		if a.query == "" {
@@ -537,12 +538,19 @@ func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 			x.Background(k.hover)
 		}
 		if x.Children(func() { ui.Icon(c, clearIcon).Size(12, 12).TextColor(t.TextMuted) }).Clicked() {
-			a.query = ""
+			a.query, a.searchKind = "", ""
 		}
 	})
 }
 
 // results lists what the search finds; picking one shows it and watches it.
+// The search shows the first few of each section, the section with the best
+// match first; a section's 全部 shows all of it, up to searchWhole.
+const (
+	searchPeek  = 4
+	searchWhole = 100
+)
+
 func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 	note := func(s string) { ui.Text(c, s).FontSize(12).TextColor(t.TextMuted).Padding(4, 12) }
 	q := strings.TrimSpace(a.query)
@@ -556,32 +564,119 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 			}
 		})
 	}
-	hits := a.findings(q, 50)
-	if len(hits) == 0 {
+	groups := a.foundFor(q).groups
+	if len(groups) == 0 {
 		switch {
-		case a.allState < 2 || a.usAsking == q:
+		case a.allState < 2 || a.perpState < 2 && a.perpState != 0 || a.usAsking == q:
 			note("正在搜索「" + q + "」…")
 		default:
 			note("没有找到「" + q + "」")
 		}
+		a.perpNote(c, t)
 		return
 	}
-	a.priceHits(q, hits)
+	whole := slices.IndexFunc(groups, func(g hitGroup) bool { return g.sec.key == a.searchKind })
+	if whole < 0 {
+		a.searchKind = "" // the section has nothing for this query
+	}
+	var shown []market.Ticker
+	for i, g := range groups {
+		switch {
+		case whole < 0:
+			shown = append(shown, g.hits[:min(searchPeek, len(g.hits))]...)
+		case i == whole:
+			shown = append(shown, g.hits[:min(searchWhole, len(g.hits))]...)
+		}
+	}
+	a.priceHits(q, shown)
 	header(c, t, "搜索结果")
+	var picked, expand string
+	back := false
 	ui.Scroll(c.Key("results")).Grow(1).FillWidth().MinHeight(0).Children(func() {
-		for _, h := range hits {
-			qt, hasQ := a.quotes[h.Symbol]
-			if !market.IsYahoo(h.Symbol) {
-				qt, hasQ = h, true // Binance's list has the day's move
+		for i, g := range groups {
+			if whole >= 0 && i != whole {
+				continue
 			}
-			if open, _ := a.quoteRow(c, t, k, h.Symbol, qt, hasQ, false); open {
-				a.pick(h.Symbol)
+			n := searchPeek
+			if whole >= 0 {
+				n = searchWhole
+			}
+			if a.hitGroupHeading(c, t, k, g, whole >= 0, len(g.hits) > n || whole >= 0 && len(g.hits) > searchPeek) {
+				if whole >= 0 {
+					back = true
+				} else {
+					expand = g.sec.key
+				}
+			}
+			for _, h := range g.hits[:min(n, len(g.hits))] {
+				qt, hasQ := a.quotes[h.Symbol]
+				if !market.IsYahoo(h.Symbol) {
+					qt, hasQ = h, true // Binance's list has the day's move
+				}
+				if open, _ := a.quoteRow(c, t, k, h.Symbol, qt, hasQ, false); open {
+					picked = h.Symbol
+				}
+			}
+			if whole >= 0 && len(g.hits) > n {
+				note(fmt.Sprintf("还有 %d 个，打得再具体些", len(g.hits)-n))
 			}
 		}
+		a.perpNote(c, t)
 		if a.usAsking == q {
 			note("正在问 Yahoo 美股…")
 		}
 	})
+	switch {
+	case picked != "":
+		a.pick(picked)
+	case expand != "":
+		a.searchKind = expand
+	case back:
+		a.searchKind = ""
+	}
+}
+
+// perpNote says the perpetuals did not come, which is a proxy missing from
+// mainland China, with a button to ask again.
+func (a *application) perpNote(c *ui.Context, t *ui.Theme) {
+	if a.perpState != 3 {
+		return
+	}
+	ui.Row(c).Padding(4, 12).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "币安永续没连上（国内要开代理）").FontSize(12).TextColor(t.TextMuted)
+		if ui.Button(c, "重试").Clicked() {
+			a.loadPerps()
+		}
+	})
+}
+
+// hitGroupHeading heads a section of the search's: its name and how many
+// it found, with 全部 to show it whole when it has more than shows, and when
+// it shows whole, 全部结果 to go back. It reports a click on either.
+func (a *application) hitGroupHeading(c *ui.Context, t *ui.Theme, k palette, g hitGroup, whole, more bool) (clicked bool) {
+	ui.Row(c.Key("hits-"+g.sec.key)).FillWidth().Height(30).Shrink(0).Padding(0, 10, 0, 12).Gap(6).AlignItems(ui.Center).Children(func() {
+		link := func(key, label, text string) {
+			b := ui.ButtonBase(c.Key(key)).Height(24).PaddingX(6).Center().Radius(4).Cursor(ui.CursorPointer).Label(label)
+			if b.Hovered() {
+				b.Background(k.hover)
+			}
+			b.Children(func() { ui.Text(c, text).FontSize(12).TextColor(k.accent).SingleLine() })
+			clicked = b.Clicked()
+		}
+		if whole {
+			link("hits-back", "返回全部结果", "‹ 全部结果")
+			ui.Box(c).Grow(1)
+		}
+		ui.Text(c, g.sec.label).FontSize(12).FontWeight(600).TextColor(t.TextMuted).SingleLine()
+		ui.Text(c, strconv.Itoa(len(g.hits))).FontSize(11).FontFeatures("tnum").TextColor(k.muted).SingleLine()
+		if !whole {
+			ui.Box(c).Grow(1)
+			if more {
+				link("hits-all-"+g.sec.key, "查看全部"+g.sec.label, "全部 ›")
+			}
+		}
+	})
+	return clicked
 }
 
 // quoteRow is one market: name, last price and move over 24 hours, and, on

@@ -400,8 +400,8 @@ func dayBreaks(bars []market.Bar, from, to int, ivMs int64, dayOf func(int64) in
 	return out
 }
 
-// searchAll finds markets of every source by name: Binance's pairs, the
-// CME futures and the US stocks. The code itself (BTC for BTCUSDT) comes
+// searchAll finds markets of every source by name: Binance's pairs and
+// perpetuals (BTCUSDT.P, among pairs), the CME futures and the US stocks. The code itself (BTC for BTCUSDT) comes
 // first, then codes starting with the query, then those holding it or a
 // Chinese name holding it (纳指, 苹果) or its pinyin (nz, pingguo), then
 // names starting with it (apple:
@@ -470,21 +470,25 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 	}
 	var hits []hit
 	for _, t := range pairs {
-		r := rankOf(t.Symbol)
-		if t.Symbol == q+"USDT" {
+		code, from := t.Symbol, 0
+		if market.IsPerp(code) { // BTCUSDT.P reads as BTCUSDT, after the spot pair
+			code, from = strings.TrimSuffix(code, ".P"), 1
+		}
+		r := rankOf(code)
+		if code == q+"USDT" || from == 1 && iconCoin(code) == q+"USDT" { // 1000PEPEUSDT.P is pepe's
 			r = 0
 		}
 		if r < 0 {
 			continue
 		}
-		if !strings.HasSuffix(t.Symbol, "USDT") {
+		if !strings.HasSuffix(code, "USDT") {
 			r += 2
 		}
-		hits = append(hits, hit{t: t, rank: r})
+		hits = append(hits, hit{t: t, rank: r, from: from})
 	}
 	for i, in := range futures {
 		if r := marketRank(in, in.Name+" "+in.Alias); r >= 0 {
-			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 1, at: i})
+			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 2, at: i})
 		}
 	}
 	for _, in := range stocks {
@@ -493,7 +497,7 @@ func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Ins
 			if pop == 0 {
 				pop = math.MaxInt
 			}
-			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 2, pop: pop, at: len(in.Code)})
+			hits = append(hits, hit{t: market.Ticker{Symbol: in.ID}, rank: r, from: 3, pop: pop, at: len(in.Code)})
 		}
 	}
 	slices.SortStableFunc(hits, func(a, b hit) int {
