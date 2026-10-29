@@ -2,6 +2,7 @@ package market
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -377,5 +378,152 @@ func TestYahooListed(t *testing.T) {
 	}
 	if q, err := y.Quotes(ctx, []string{"SSE:600795"}); err != nil || len(q) != 0 {
 		t.Fatalf("Yahoo's quote of an A share: %v %v", q, err)
+	}
+}
+
+// A market trades on weekdays, from 5 minutes before each part of its day
+// to 15 after: Shanghai's lunch and evenings are quiet, Hong Kong's closing
+// auction is not. Stream and Watch ask every few seconds then, every minute
+// otherwise.
+func TestEastmoneyPace(t *testing.T) {
+	cn, _ := InstrumentOf("SSE:600795")
+	hk, _ := InstrumentOf("HKEX:HSI")
+	for _, c := range []struct {
+		in   Instrument
+		at   string
+		want bool
+	}{
+		{cn, "2026-10-29 09:24", false}, {cn, "2026-10-29 09:26", true}, {cn, "2026-10-29 11:40", true},
+		{cn, "2026-10-29 12:00", false}, {cn, "2026-10-29 15:10", true}, {cn, "2026-10-29 15:20", false},
+		{cn, "2026-10-31 10:00", false}, // a Saturday
+		{hk, "2026-10-29 12:10", true}, {hk, "2026-10-29 12:30", false}, {hk, "2026-10-29 16:10", true}, {hk, "2026-10-29 16:20", false},
+	} {
+		if got := c.in.trading(time.UnixMilli(localAt(shanghai, c.at))); got != c.want {
+			t.Errorf("%s at %s: trading %v", c.in.ID, c.at, got)
+		}
+	}
+	e := Eastmoney{}
+	noon, night := time.UnixMilli(localAt(shanghai, "2026-10-29 12:10")), time.UnixMilli(localAt(shanghai, "2026-10-29 20:00"))
+	if e.pace([]Instrument{cn}, noon) != time.Minute || e.pace([]Instrument{cn, hk}, noon) != 5*time.Second || e.pace([]Instrument{cn, hk}, night) != time.Minute {
+		t.Fatal("pace")
+	}
+}
+
+// Once Eastmoney hangs up, Candle asks it nothing for a while, longer each
+// time, and again once that is over; a request that comes through ends the
+// rest. A market Eastmoney does not know is no failure.
+func TestEastmoneyRests(t *testing.T) {
+	defer func(r, m time.Duration) { eastRest, eastRestMax = r, m }(eastRest, eastRestMax)
+	eastRest, eastRestMax = 150*time.Millisecond, 250*time.Millisecond
+	var mu sync.Mutex
+	asked, hangUp := 0, true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		asked++
+		h := hangUp
+		mu.Unlock()
+		if h { // as Eastmoney does: no answer at all
+			c, _, _ := w.(http.Hijacker).Hijack()
+			c.Close()
+			return
+		}
+		// A new connection each time: Go asks again on its own when a kept
+		// one is hung up on, which would count twice.
+		w.Header().Set("Connection", "close")
+		if r.URL.Query().Get("secid") == "1.600000" {
+			fmt.Fprint(w, `{"rc":0,"data":null}`)
+			return
+		}
+		fmt.Fprint(w, `{"rc":0,"data":{"f57":"600795","f58":"国电电力","f59":2}}`)
+	}))
+	defer srv.Close()
+	e := Eastmoney{HTTP: srv.Client(), His: srv.URL, Push: srv.URL}
+	ctx := context.Background()
+	count := func() int { mu.Lock(); defer mu.Unlock(); return asked }
+	set := func(h bool) { mu.Lock(); hangUp = h; mu.Unlock() }
+	if _, err := e.Symbols(ctx, "SSE:600795"); err == nil || errors.Is(err, ErrEastmoneyResting) || count() != 1 {
+		t.Fatalf("hung up: %v, %d asked", err, count())
+	}
+	if _, err := e.Klines(ctx, "SSE:600795", "1d", 0, 10); !errors.Is(err, ErrEastmoneyResting) || count() != 1 {
+		t.Fatalf("resting: %v, %d asked", err, count())
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := e.Symbols(ctx, "SSE:600795"); err == nil || count() != 2 { // asks again, hung up again: a longer rest
+		t.Fatalf("after the rest: %v, %d asked", err, count())
+	}
+	time.Sleep(200 * time.Millisecond) // past the first rest's length, not the second's
+	if _, err := e.Symbols(ctx, "SSE:600795"); !errors.Is(err, ErrEastmoneyResting) || count() != 2 {
+		t.Fatalf("the longer rest: %v, %d asked", err, count())
+	}
+	set(false)
+	time.Sleep(100 * time.Millisecond)
+	if s, err := e.Symbols(ctx, "SSE:600795"); err != nil || s[0].Desc != "国电电力" || count() != 3 {
+		t.Fatalf("answered again: %+v %v", s, err)
+	}
+	// The rest after that is a short one again.
+	set(true)
+	e.Symbols(ctx, "SSE:600795")
+	time.Sleep(200 * time.Millisecond)
+	set(false)
+	if _, err := e.Symbols(ctx, "SSE:600795"); err != nil || count() != 5 {
+		t.Fatalf("after a rest begun anew: %v, %d asked", err, count())
+	}
+	if _, err := e.Symbols(ctx, "SSE:600000"); err == nil || errors.Is(err, ErrEastmoneyResting) {
+		t.Fatalf("an unknown market: %v", err)
+	}
+	if _, err := e.Symbols(ctx, "SSE:600795"); err != nil || count() != 7 {
+		t.Fatalf("an unknown market made Candle rest: %v, %d asked", err, count())
+	}
+	// Its own server for each base: another Eastmoney is not resting.
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := e.Symbols(cctx, "SSE:600795"); err == nil {
+		t.Fatal("a cancelled request came through")
+	}
+	if _, err := e.Symbols(ctx, "SSE:600795"); err != nil {
+		t.Fatalf("a cancelled request made Candle rest: %v", err)
+	}
+}
+
+// Watch and Stream ask every few seconds while the market trades, and a
+// twelfth as often at night.
+func TestEastmoneyAsksLessAtNight(t *testing.T) {
+	defer func(f func() time.Time) { eastNow = f }(eastNow)
+	_, e := newFakeEast(t)
+	gap := func(at string, run func(context.Context, func())) time.Duration {
+		eastNow = func() time.Time { return time.UnixMilli(localAt(shanghai, at)) }
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var times []time.Time
+		run(ctx, func() {
+			if times = append(times, time.Now()); len(times) == 2 {
+				cancel()
+			}
+		})
+		if len(times) < 2 {
+			t.Fatalf("at %s: asked %d times", at, len(times))
+		}
+		return times[1].Sub(times[0])
+	}
+	watch := func(ctx context.Context, f func()) {
+		e.Watch(ctx, []string{"SSE:600795"}, func(tk Ticker) {
+			if tk.Symbol == "SSE:600795" {
+				f()
+			}
+		})
+	}
+	stream := func(ctx context.Context, f func()) {
+		n := 0
+		e.Stream(ctx, "SSE:600795", "1d", func(Bar, bool, int64) {
+			if n++; n%2 == 1 {
+				f()
+			}
+		})
+	}
+	for name, run := range map[string]func(context.Context, func()){"watch": watch, "stream": stream} {
+		day, night := gap("2026-10-29 10:00", run), gap("2026-10-29 20:00", run)
+		if day > 60*time.Millisecond || night < 100*time.Millisecond {
+			t.Errorf("%s: %v apart by day, %v at night", name, day, night)
+		}
 	}
 }

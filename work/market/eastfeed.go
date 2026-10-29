@@ -4,12 +4,14 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,6 +35,83 @@ func (e Eastmoney) every() time.Duration {
 		return e.Every
 	}
 	return 5 * time.Second
+}
+
+// pace is how often Stream and Watch ask again: every few seconds while a
+// market among ins trades, every minute otherwise (nights, weekends, the
+// lunch break), when the bars and prices stand still.
+func (e Eastmoney) pace(ins []Instrument, now time.Time) time.Duration {
+	for _, in := range ins {
+		if in.trading(now) {
+			return e.every()
+		}
+	}
+	return 12 * e.every()
+}
+
+// trading is whether in's market trades at t, or is about to or has just:
+// a weekday, from 5 minutes before a part of the day opens to 15 after it
+// closes (the auctions, and the last bars settling). Holidays are not known.
+func (in Instrument) trading(t time.Time) bool {
+	n := t.In(in.Loc)
+	if n.Weekday() == time.Saturday || n.Weekday() == time.Sunday {
+		return false
+	}
+	tod := n.Sub(time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, in.Loc))
+	for _, s := range in.sessions() {
+		if tod >= s.open-5*time.Minute && tod < s.close+15*time.Minute {
+			return true
+		}
+	}
+	return false
+}
+
+// Eastmoney shuts out an address that asks too much: its quote servers hang
+// up on it, for an hour or more, and asking meanwhile may keep it shut. So
+// after a request fails Candle stops asking for a while, a minute at first,
+// doubling to a quarter of an hour, and asks again once that is over; one
+// that comes through ends the rest. The search, on another server, is apart.
+// eastNow is the clock pace goes by.
+var eastNow = time.Now
+
+var (
+	eastRest    = time.Minute
+	eastRestMax = 15 * time.Minute
+	eastGates   sync.Map // by the prices' base URL: *eastGate
+)
+
+// ErrEastmoneyResting is what a request gets while Candle rests from
+// asking Eastmoney.
+var ErrEastmoneyResting = errors.New("东方财富暂时拒绝了这台电脑的请求（问得太频繁会被封一阵），Candle 先歇几分钟再问")
+
+type eastGate struct {
+	mu    sync.Mutex
+	until time.Time
+	wait  time.Duration
+}
+
+// fetch gets base+path unless Candle rests from Eastmoney, and rests after
+// a request that fails (not one ctx ended).
+func (e Eastmoney) fetch(ctx context.Context, base, path string) ([]byte, error) {
+	v, _ := eastGates.LoadOrStore(e.push(), &eastGate{})
+	g := v.(*eastGate)
+	g.mu.Lock()
+	resting := time.Now().Before(g.until)
+	g.mu.Unlock()
+	if resting {
+		return nil, ErrEastmoneyResting
+	}
+	body, err := get(ctx, e.HTTP, base+path)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch {
+	case err == nil:
+		g.wait = 0
+	case ctx.Err() == nil:
+		g.wait = min(max(g.wait*2, eastRest), eastRestMax)
+		g.until = time.Now().Add(g.wait)
+	}
+	return body, err
 }
 
 // eastInterval is Eastmoney's bar size (klt) for an interval: minutes, 101
@@ -113,7 +192,7 @@ func (e Eastmoney) klines(ctx context.Context, in Instrument, klt int, day strin
 		"secid": {in.Ticker}, "fields1": {"f1,f2,f3"}, "fields2": {"f51,f52,f53,f54,f55,f56"},
 		"klt": {strconv.Itoa(klt)}, "fqt": {"1"}, "end": {day}, "lmt": {strconv.Itoa(lmt)},
 	}
-	body, err := get(ctx, e.HTTP, e.his()+"/api/qt/stock/kline/get?"+q.Encode())
+	body, err := e.fetch(ctx, e.his(), "/api/qt/stock/kline/get?"+q.Encode())
 	if err != nil {
 		return nil, fmt.Errorf("eastmoney %s: %w", in.Code, err)
 	}
@@ -254,7 +333,7 @@ func (e Eastmoney) Stream(ctx context.Context, symbol, interval string, fn func(
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(e.every()):
+		case <-time.After(e.pace([]Instrument{in}, eastNow())):
 		}
 	}
 }
@@ -273,7 +352,7 @@ func (e Eastmoney) Quotes(ctx context.Context, ids []string) ([]Ticker, error) {
 	var out []Ticker
 	for i := 0; i < len(secids); i += 50 {
 		q := url.Values{"fltt": {"2"}, "secids": {strings.Join(secids[i:min(i+50, len(secids))], ",")}, "fields": {"f2,f12,f13,f18"}}
-		body, err := get(ctx, e.HTTP, e.push()+"/api/qt/ulist.np/get?"+q.Encode())
+		body, err := e.fetch(ctx, e.push(), "/api/qt/ulist.np/get?"+q.Encode())
 		if err != nil {
 			return nil, fmt.Errorf("eastmoney quotes: %w", err)
 		}
@@ -321,6 +400,12 @@ func number(raw json.RawMessage) float64 {
 // Watch calls fn with each market's quote every few seconds, until ctx ends
 // or a request fails.
 func (e Eastmoney) Watch(ctx context.Context, symbols []string, fn func(Ticker)) error {
+	var ins []Instrument
+	for _, s := range symbols {
+		if in, ok := InstrumentOf(s); ok && IsEastmoney(s) {
+			ins = append(ins, in)
+		}
+	}
 	for {
 		got, err := e.Quotes(ctx, symbols)
 		if err != nil {
@@ -332,7 +417,7 @@ func (e Eastmoney) Watch(ctx context.Context, symbols []string, fn func(Ticker))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(e.every()):
+		case <-time.After(e.pace(ins, eastNow())):
 		}
 	}
 }
@@ -347,7 +432,7 @@ func (e Eastmoney) Symbols(ctx context.Context, names ...string) ([]Symbol, erro
 			return nil, err
 		}
 		q := url.Values{"secid": {in.Ticker}, "fltt": {"2"}, "fields": {"f57,f58,f59"}}
-		body, err := get(ctx, e.HTTP, e.push()+"/api/qt/stock/get?"+q.Encode())
+		body, err := e.fetch(ctx, e.push(), "/api/qt/stock/get?"+q.Encode())
 		if err != nil {
 			return nil, fmt.Errorf("eastmoney %s: %w", in.Code, err)
 		}

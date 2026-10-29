@@ -52,7 +52,7 @@ Go 写的原生 Windows / macOS 程序，不是网页套壳。拖动、缩放、
 - 永续合约来自币安合约的公开接口 `fapi.binance.com` 和 `fstream.binance.com`（同样不要 Key）。它没有国内能直连的镜像，在中国大陆要开代理；没开时搜不到永续，现货不受影响。Candle 里永续写作 `BTCUSDT.P`。
 - 期货和美股的行情来自 Yahoo Finance 网页自己用的接口（`query1/query2.finance.yahoo.com`），不是公开 API，Yahoo 随时可能改或限流。在中国大陆要开代理才连得上。Candle 里期货写作 `CME:NQ`、美股写作 `US:AAPL`，币还是 `BTCUSDT`。
 - 美股的代码清单来自 Nasdaq 每天发布的全部美股/ETF 列表（`www.nasdaqtrader.com`，约 1 MB，一周更新一次，存进下面说的缓存文件夹），搜美股不用再问 Yahoo；常用的 90 多只带了中文名。清单还没下好时，搜美股退回去问 Yahoo。
-- A 股（含指数）和港股的行情来自东方财富网站自己用的接口（K 线 `push2his.eastmoney.com`、报价 `push2.eastmoney.com`，不是公开 API），国内直连，A 股晚约 3 秒、港股几乎实时（Yahoo 上 A 股要晚 30 分钟、港股晚 15 分钟，所以没用 Yahoo）。分钟线东方财富只给最近一个半月左右（1 分钟线只有当天），日线、周线从上市那天起；价格是前复权的，和国内炒股软件一样。小时线、4 小时线用 5 分钟线拼，和 TradingView 一样按开盘算起（港股 11:30 那根只有半小时）。Candle 里 A 股写作 `SSE:600795`（上交所）、`SZSE:000001`（深交所，平安银行；上证指数是 `SSE:000001`），港股 `HKEX:00700`，恒生指数 `HKEX:HSI`。
+- A 股（含指数）和港股的行情来自东方财富网站自己用的接口（K 线 `push2his.eastmoney.com`、报价 `push2.eastmoney.com`，不是公开 API），国内直连，A 股晚约 3 秒、港股几乎实时（Yahoo 上 A 股要晚 30 分钟、港股晚 15 分钟，所以没用 Yahoo）。分钟线东方财富只给最近一个半月左右（1 分钟线只有当天），日线、周线从上市那天起；价格是前复权的，和国内炒股软件一样。东方财富对问得太频繁的 IP 会封一阵（服务器直接断开），所以 Candle 只在交易时段每 5 秒问一次、休市每分钟一次，被拒了就先停 1 分钟再问，还不行就停得更久（最多 15 分钟），问通了恢复。小时线、4 小时线用 5 分钟线拼，和 TradingView 一样按开盘算起（港股 11:30 那根只有半小时）。Candle 里 A 股写作 `SSE:600795`（上交所）、`SZSE:000001`（深交所，平安银行；上证指数是 `SSE:000001`），港股 `HKEX:00700`，恒生指数 `HKEX:HSI`。
 - 韩股和 VIX 来自 Yahoo：韩股晚 20 分钟（东方财富的韩股分钟线没有成交量），VIX 晚 15 分钟（东方财富没有 VIX）。写作 `KRX:000660`、`CBOE:VIX`。韩股现在只接了 KOSPI 主板（Yahoo 的 .KS）。
 - 中文名：币、永续合约和常用的 90 多只美股的中文名写在程序里，不用联网；其他美股的中文名（闪迪、SK海力士这些）来自东方财富网站搜索框用的接口（`searchapi.eastmoney.com`，不是公开 API），只在搜索里打了汉字或数字代码时才问，国内直连，约 0.1 秒。A 股、港股的名字也从这里来。
 - 美股的图标来自 Financial Modeling Prep 公开的 logo（`financialmodelingprep.com/image-stock/<代码>.png`，不要 key，国内直连），和币的图标一样只下载一次；没有 logo 的显示首字母。
