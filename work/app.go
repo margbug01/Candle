@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -35,6 +37,7 @@ const (
 // thread: background work hands its results over with post.
 type application struct {
 	bin   market.Binance
+	yahoo market.Yahoo // CME futures and US stocks
 	post  func(func()) // runs fn on the main thread
 	spawn func(func()) // starts background work; the tests drop it
 	file  string
@@ -74,7 +77,10 @@ type application struct {
 	allState  int // 0 not asked, 1 loading, 2 loaded, 3 failed
 	query     string
 	stopWatch context.CancelFunc
-	icons     icons // the coins' icons
+	icons     icons                          // the coins' icons
+	usFound   map[string][]market.Instrument // Yahoo's answers for US stocks, by query
+	usNames   map[string]string              // the stocks' names, from those answers
+	usAsking  string                         // the query being asked
 
 	// The drawings: the tool in hand, the drawing being drawn and the point
 	// it is at, the one selected and the point of it being dragged.
@@ -128,7 +134,8 @@ type application struct {
 
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {
 	return &application{
-		bin: bin, post: post, file: file, set: set,
+		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, post: post, file: file, set: set,
+		usFound: map[string][]market.Instrument{}, usNames: map[string]string{},
 		spawn:     func(f func()) { go f() },
 		view:      defaultView(),
 		infos:     map[string]market.Symbol{},
@@ -202,7 +209,7 @@ func (a *application) feed(ctx context.Context, gen int, sym, iv string, needInf
 	if needInfo {
 		go a.lookup(ctx, []string{sym})
 	}
-	bars, err := a.bin.Klines(ctx, sym, iv, 0, 1000)
+	bars, err := a.feedOf(sym).Klines(ctx, sym, iv, 0, 1000)
 	if ctx.Err() != nil {
 		return
 	}
@@ -223,7 +230,7 @@ func (a *application) feed(ctx context.Context, gen int, sym, iv string, needInf
 	pause := time.Second
 	for {
 		heard := false
-		a.bin.Stream(ctx, sym, iv, func(bar market.Bar, _ bool, _ int64) {
+		a.feedOf(sym).Stream(ctx, sym, iv, func(bar market.Bar, _ bool, _ int64) {
 			heard = true
 			a.post(func() {
 				if gen == a.gen {
@@ -249,7 +256,7 @@ func (a *application) feed(ctx context.Context, gen int, sym, iv string, needInf
 		case <-time.After(pause):
 		}
 		pause = min(pause*2, 30*time.Second)
-		if got, err := a.bin.Klines(ctx, sym, iv, 0, 1000); err == nil && len(got) > 0 {
+		if got, err := a.feedOf(sym).Klines(ctx, sym, iv, 0, 1000); err == nil && len(got) > 0 {
 			a.post(func() {
 				if gen != a.gen {
 					return
@@ -303,7 +310,7 @@ func (a *application) loadOlder() {
 	a.older = true
 	ctx, gen, sym, iv, end := a.ctx, a.gen, a.symbol, a.interval, a.bars[0].T-1
 	a.spawn(func() {
-		got, err := a.bin.Klines(ctx, sym, iv, end, 1000)
+		got, err := a.feedOf(sym).Klines(ctx, sym, iv, end, 1000)
 		a.post(func() {
 			if gen != a.gen {
 				return
@@ -322,8 +329,8 @@ func (a *application) loadOlder() {
 	})
 }
 
-// watchQuotes follows the watchlist's prices, restarting when it changes.
-// Updates are passed on at most twice a second: each one rebuilds the window.
+// watchQuotes follows the watchlist's prices, restarting when it changes:
+// Binance's pairs on its stream, futures and stocks from Yahoo.
 func (a *application) watchQuotes() {
 	if a.stopWatch != nil {
 		a.stopWatch()
@@ -340,46 +347,156 @@ func (a *application) watchQuotes() {
 			missing = append(missing, s)
 		}
 	}
+	if len(missing) > 0 {
+		a.spawn(func() { a.lookup(ctx, missing) })
+	}
+	for _, group := range byFeed(list) {
+		feed := a.feedOf(group[0])
+		a.spawn(func() { a.follow(ctx, feed, group) })
+	}
+}
+
+// follow passes on the quotes of list at most twice a second, each time
+// all that came in since (each pass rebuilds the window), reconnecting with
+// a growing pause until ctx ends.
+func (a *application) follow(ctx context.Context, feed market.Feed, list []string) {
+	var mu sync.Mutex
+	pending := map[string]market.Ticker{}
+	var timer *time.Timer
+	send := func() {
+		mu.Lock()
+		batch := pending
+		pending, timer = map[string]market.Ticker{}, nil
+		mu.Unlock()
+		if len(batch) > 0 {
+			a.post(func() { maps.Copy(a.quotes, batch) })
+		}
+	}
+	pause := time.Second
+	for {
+		heard := false
+		feed.Watch(ctx, list, func(t market.Ticker) {
+			heard = true
+			mu.Lock()
+			pending[t.Symbol] = t
+			if timer == nil {
+				timer = time.AfterFunc(500*time.Millisecond, send)
+			}
+			mu.Unlock()
+		})
+		if heard {
+			pause = time.Second
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(pause):
+		}
+		pause = min(pause*2, 30*time.Second)
+	}
+}
+
+// findings are what the search shows for query: Binance's pairs, the
+// futures, and the US stocks Yahoo has answered with so far.
+func (a *application) findings(query string, limit int) []market.Ticker {
+	return searchAll(query, a.all, market.Futures, a.usFound[strings.TrimSpace(query)], limit)
+}
+
+// searchUS asks Yahoo for the US stocks query names, a moment after the
+// typing stops, and the prices of what it finds and of the futures the
+// query names. Answers are kept by query.
+func (a *application) searchUS(query string) {
+	q := strings.TrimSpace(query)
+	if q == "" || a.usFound[q] != nil || a.usAsking == q {
+		return
+	}
+	a.usAsking = q
 	a.spawn(func() {
-		if len(missing) > 0 {
-			a.lookup(ctx, missing)
-		}
-		pause := time.Second
-		for {
-			heard := false
-			pending, sent := map[string]market.Ticker{}, time.Time{}
-			a.bin.Watch(ctx, list, func(t market.Ticker) {
-				heard = true
-				pending[t.Symbol] = t
-				if time.Since(sent) >= 500*time.Millisecond {
-					batch := pending
-					pending, sent = map[string]market.Ticker{}, time.Now()
-					a.post(func() { maps.Copy(a.quotes, batch) })
+		time.Sleep(300 * time.Millisecond)
+		a.post(func() {
+			if strings.TrimSpace(a.query) != q { // typed on: that query asks
+				if a.usAsking == q {
+					a.usAsking = ""
 				}
-			})
-			if heard {
-				pause = time.Second
-			}
-			select {
-			case <-ctx.Done():
 				return
-			case <-time.After(pause):
 			}
-			pause = min(pause*2, 30*time.Second)
-		}
+			a.spawn(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+				found, err := a.yahoo.Search(ctx, q)
+				var ids []string
+				for _, t := range searchAll(q, nil, market.Futures, found, 20) {
+					ids = append(ids, t.Symbol)
+				}
+				var quotes []market.Ticker
+				if len(ids) > 0 {
+					quotes, _ = a.yahoo.Quotes(ctx, ids)
+				}
+				a.post(func() {
+					if a.usAsking == q {
+						a.usAsking = ""
+					}
+					if err != nil {
+						return // asked again when the query changes back
+					}
+					if len(a.usFound) > 200 {
+						clear(a.usFound)
+					}
+					a.usFound[q] = append([]market.Instrument{}, found...)
+					for _, in := range found {
+						a.usNames[in.ID] = in.Name
+					}
+					for _, t := range quotes {
+						a.quotes[t.Symbol] = t
+					}
+				})
+			})
+		})
 	})
+}
+
+// feedOf is where sym's bars come from: Yahoo for "CME:" and "US:" names,
+// Binance for the rest.
+func (a *application) feedOf(sym string) market.Feed {
+	if market.IsYahoo(sym) {
+		return a.yahoo
+	}
+	return a.bin
+}
+
+// byFeed splits names into Binance's and Yahoo's, keeping their order.
+func byFeed(names []string) (groups [][]string) {
+	var bin, yahoo []string
+	for _, n := range names {
+		if market.IsYahoo(n) {
+			yahoo = append(yahoo, n)
+		} else {
+			bin = append(bin, n)
+		}
+	}
+	for _, g := range [][]string{bin, yahoo} {
+		if len(g) > 0 {
+			groups = append(groups, g)
+		}
+	}
+	return groups
 }
 
 // lookup fetches names and price steps. One delisted name fails a batch, so
 // then it asks one by one.
 func (a *application) lookup(ctx context.Context, names []string) {
-	syms, err := a.bin.Symbols(ctx, names...)
-	if err != nil && len(names) > 1 {
-		for _, n := range names {
-			if s, err := a.bin.Symbols(ctx, n); err == nil {
-				syms = append(syms, s...)
+	var syms []market.Symbol
+	for _, group := range byFeed(names) {
+		feed := a.feedOf(group[0])
+		got, err := feed.Symbols(ctx, group...)
+		if err != nil && len(group) > 1 {
+			for _, n := range group {
+				if s, err := feed.Symbols(ctx, n); err == nil {
+					got = append(got, s...)
+				}
 			}
 		}
+		syms = append(syms, got...)
 	}
 	a.post(func() {
 		for _, s := range syms {
@@ -441,10 +558,14 @@ func (a *application) unwatch(sym string) {
 }
 
 // names splits a market's name into what it trades and what it is priced in,
-// guessing from common quote assets until Binance says.
+// guessing from common quote assets until Binance says. A future or a stock
+// is its code, priced in dollars: "NQ", "AAPL".
 func (a *application) names(sym string) (base, quote string) {
 	if s, ok := a.infos[sym]; ok && s.Base != "" {
 		return s.Base, s.Quote
+	}
+	if in, ok := market.InstrumentOf(sym); ok {
+		return in.Code, ""
 	}
 	for _, q := range []string{"USDT", "USDC", "FDUSD", "BTC", "ETH", "BNB"} {
 		if b, ok := strings.CutSuffix(sym, q); ok && b != "" {
@@ -457,8 +578,8 @@ func (a *application) names(sym string) (base, quote string) {
 // priceDecimals is how many decimals sym's prices show; sample stands in until
 // its step is known.
 func (a *application) priceDecimals(sym string, sample float64) int {
-	if s, ok := a.infos[sym]; ok && s.Tick > 0 {
-		return decimals(s.Tick)
+	if tick := a.tick(sym); tick > 0 {
+		return decimals(tick)
 	}
 	return autoDecimals(sample)
 }
@@ -474,6 +595,81 @@ func (a *application) chartDecimals(sample float64) int {
 		return d
 	}
 	return a.priceDecimals(a.symbol, sample)
+}
+
+// tick is sym's price step, 0 until known. A future's is known at once.
+func (a *application) tick(sym string) float64 {
+	if s, ok := a.infos[sym]; ok && s.Tick > 0 {
+		return s.Tick
+	}
+	in, _ := market.InstrumentOf(sym)
+	return in.Tick
+}
+
+// after is what reads, muted, after a market's name: "/USDT" for a pair,
+// what it is for a future or a stock: " 纳指 E-mini", " Apple Inc.".
+func (a *application) after(sym string) string {
+	_, quote := a.names(sym)
+	if !market.IsYahoo(sym) {
+		return suffix(quote)
+	}
+	if s, ok := a.infos[sym]; ok && s.Desc != "" {
+		return " " + s.Desc
+	}
+	if n := a.usNames[sym]; n != "" {
+		return " " + n
+	}
+	if in, _ := market.InstrumentOf(sym); in.Name != "" {
+		return " " + in.Name
+	}
+	return ""
+}
+
+// countsDown is whether the newest bar's close is a bar's length after it
+// opened, for the countdown: not for a stock's or a future's day, which
+// closes with its session.
+func (a *application) countsDown(ivMs int64) bool {
+	return !market.IsYahoo(a.symbol) || ivMs < 86_400_000
+}
+
+// delay is how late the market on the chart comes.
+func (a *application) delay() time.Duration {
+	in, _ := market.InstrumentOf(a.symbol)
+	return in.Delay
+}
+
+// dayOf is when the day holding a time began, for the day lines: a stock's
+// or a future's session (9:30 or 18:00 the evening before, New York time),
+// a pair's midnight as the settings say.
+func (a *application) dayOf() func(int64) int64 {
+	if in, ok := market.InstrumentOf(a.symbol); ok {
+		return in.SessionStart
+	}
+	return midnights(a.set.Chart.breakLoc())
+}
+
+// venue is where sym trades, and how late its prices are, for the legend.
+func venue(sym string) string {
+	in, ok := market.InstrumentOf(sym)
+	switch {
+	case !ok:
+		return "Binance"
+	case in.Delay > 0:
+		return fmt.Sprintf("CME · 晚 %d 分钟", int(in.Delay.Minutes()))
+	}
+	return "美股"
+}
+
+// volumeUnit is what a bar's volume counts: coins, contracts or shares.
+func (a *application) volumeUnit(sym string) string {
+	base, _ := a.names(sym)
+	if in, ok := market.InstrumentOf(sym); ok {
+		if in.Future {
+			return "手"
+		}
+		return "股"
+	}
+	return base
 }
 
 func (a *application) intervalMs() int64 {

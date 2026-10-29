@@ -83,8 +83,7 @@ func (a *application) legends(c *ui.Context, t *ui.Theme, k palette, i int) {
 		if len(title) > 0 {
 			ui.Row(c).Gap(6).Margin(0, 0, 2, 4).AlignItems(ui.Center).PassThrough().Children(func() {
 				if a.set.Chart.Logo {
-					base, _ := a.names(a.symbol)
-					a.coinIcon(c, base, 18).PassThrough()
+					a.symIcon(c, a.symbol, 18).PassThrough()
 				}
 				fixedText(c, title...).PassThrough()
 			})

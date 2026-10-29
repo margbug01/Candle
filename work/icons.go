@@ -12,6 +12,8 @@ import (
 	"unicode"
 
 	"github.com/egoist/mygo/ui"
+
+	"candle/market"
 )
 
 // The coins' icons go beside their names: in the watchlist, the search, the
@@ -152,12 +154,27 @@ func (a *application) icon(coin string) *ui.Bitmap {
 	return nil
 }
 
+// symIcon is sym's icon, size across: a coin's picture, or for a future or
+// a stock (Yahoo has no pictures) the first letter of its code.
+func (a *application) symIcon(c *ui.Context, sym string, size float32) ui.Element {
+	base, _ := a.names(sym)
+	if market.IsYahoo(sym) {
+		return letterDisc(c, base, size)
+	}
+	return a.coinIcon(c, base, size)
+}
+
 // coinIcon is coin's icon, size across, as a disc: the picture, or its first
 // letter until there is one.
 func (a *application) coinIcon(c *ui.Context, coin string, size float32) ui.Element {
 	if b := a.icon(coin); b != nil {
 		return ui.Image(c, b).Size(size, size).Radius(size / 2).Shrink(0)
 	}
+	return letterDisc(c, coin, size)
+}
+
+// letterDisc is name's first letter on a disc of its color.
+func letterDisc(c *ui.Context, coin string, size float32) ui.Element {
 	bg := discColor(coin)
 	return ui.Box(c).Size(size, size).Radius(size / 2).Shrink(0).Center().Background(bg).Children(func() {
 		// The letter lets the pointer through to the disc: in the legend the

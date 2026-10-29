@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"candle/market"
 )
 
 // palette is the window's colors, after TradingView's.
@@ -265,7 +267,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 	ly := min(max(mid(y(last.C)), plot.Y+10), plot.Y+plot.H-24)
 	now := time.Now().UnixMilli() + a.clock
 	closeAt := last.T + ivMs
-	running := showValue && st.Countdown && now >= last.T && now < closeAt
+	running := showValue && st.Countdown && now >= last.T && now < closeAt && a.countsDown(ivMs)
 	lh := float32(20)
 	if running {
 		lh = 34
@@ -357,7 +359,7 @@ func (a *application) drawChart(p *ui.Painter, r ui.Rect, k palette, hx, hy floa
 		if st.BreakWidth%2 == 0 {
 			at = snap // an even width is sharp on a pixel's edge
 		}
-		for _, b := range dayBreaks(a.bars, from, to, ivMs, st.breakLoc()) {
+		for _, b := range dayBreaks(a.bars, from, to, ivMs, a.dayOf()) {
 			xx := at(plot.X + v.x(b.i, plot.W, n) + (b.frac-0.5)*v.spacing)
 			if xx >= plot.X && xx <= plot.X+plot.W {
 				dash(p, xx, plot.Y, xx, bottom, w, col, st.BreakStyle)
@@ -537,12 +539,16 @@ func (a *application) legendSpans(k palette, i int) (title, spans []ui.Span) {
 	st := &a.set.Chart
 	b := a.bars[i]
 	d := a.chartDecimals(a.bars[len(a.bars)-1].C)
-	base, quote := a.names(a.symbol)
+	base, _ := a.names(a.symbol)
 	if st.Title {
 		iv, _ := intervalOf(a.interval)
 		title = []ui.Span{
-			{Text: base + suffix(quote), Size: 14, Weight: 600, Color: k.text},
-			{Text: "  ·  " + iv.label + "  ·  Binance", Size: 12, Color: k.muted}}
+			{Text: base, Size: 14, Weight: 600, Color: k.text},
+			{Text: a.after(a.symbol), Size: 12, Color: k.muted},
+			{Text: "  ·  " + iv.label + "  ·  " + venue(a.symbol), Size: 12, Color: k.muted}}
+		if !market.IsYahoo(a.symbol) { // a pair reads as one name: BTC/USDT
+			title[1].Size, title[1].Weight, title[1].Color = 14, 600, k.text
+		}
 	}
 	if st.Values {
 		col := a.inkColor(i, k)
@@ -565,7 +571,7 @@ func (a *application) legendSpans(k palette, i int) (title, spans []ui.Span) {
 		spans = append(spans, span(formatSigned(move, d)+fmt.Sprintf(" (%+.2f%%)    ", pct), 12, k.move(move), 0))
 	}
 	if st.VolumeValue {
-		spans = append(spans, ui.Span{Text: "量 ", Size: 12, Color: k.muted}, span(formatVolume(b.V)+" "+base, 12, k.text, 0))
+		spans = append(spans, ui.Span{Text: "量 ", Size: 12, Color: k.muted}, span(formatVolume(b.V)+" "+a.volumeUnit(a.symbol), 12, k.text, 0))
 	}
 	return title, spans
 }

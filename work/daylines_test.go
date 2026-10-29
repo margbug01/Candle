@@ -47,7 +47,7 @@ func TestDayBreaks(t *testing.T) {
 		{"gap", append(barsFrom(time.Date(2026, 10, 27, 20, 0, 0, 0, time.UTC), 2, time.Hour),
 			barsFrom(time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC), 2, time.Hour)...), 0, 3, time.Hour, time.UTC, []dayBreak{{2, 0}}},
 	} {
-		got := dayBreaks(c.bars, c.from, c.to, int64(c.iv/time.Millisecond), c.loc)
+		got := dayBreaks(c.bars, c.from, c.to, int64(c.iv/time.Millisecond), midnights(c.loc))
 		if !slices.EqualFunc(got, c.want, func(a, b dayBreak) bool { return a.i == b.i && math.Abs(float64(a.frac-b.frac)) < 1e-4 }) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}

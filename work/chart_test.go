@@ -206,7 +206,7 @@ func TestCountdown(t *testing.T) {
 }
 
 func TestDecimals(t *testing.T) {
-	for tick, want := range map[float64]int{0.01: 2, 1e-8: 8, 1: 0, 10: 0, 0.1: 1} {
+	for tick, want := range map[float64]int{0.01: 2, 1e-8: 8, 1: 0, 10: 0, 0.1: 1, 0.25: 2, 0.005: 3} {
 		if got := decimals(tick); got != want {
 			t.Errorf("decimals(%v) = %d, want %d", tick, got, want)
 		}
@@ -229,10 +229,10 @@ func TestSearch(t *testing.T) {
 		}
 		return s
 	}
-	if got := names(search(all, "btc", 10)); !slices.Equal(got, []string{"BTCUSDT", "WBTCUSDT", "BTCFDUSD", "ETHBTC"}) {
+	if got := names(searchAll("btc", all, nil, nil, 10)); !slices.Equal(got, []string{"BTCUSDT", "WBTCUSDT", "BTCFDUSD", "ETHBTC"}) {
 		t.Fatalf("btc: %q", got)
 	}
-	if got := names(search(all, " btc/usdt", 1)); !slices.Equal(got, []string{"BTCUSDT"}) {
+	if got := names(searchAll(" btc/usdt", all, nil, nil, 1)); !slices.Equal(got, []string{"BTCUSDT"}) {
 		t.Fatalf("btc/usdt: %q", got)
 	}
 }

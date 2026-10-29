@@ -311,7 +311,7 @@ func (a *application) canvasPage(c *ui.Context, t *ui.Theme, k palette) {
 	if st.Breaks {
 		row(c, "一天的起点", func() {
 			a.dropdown(c, "一天的起点", dayStarts(st), st.BreakZone, func(v string) { st.BreakZone = v }).Width(300).
-				Tooltip("每天在这个时刻画一条竖线。只在 1 天以下的周期画：日线和更大的周期，每根 K 线就是一天")
+				Tooltip("每天在这个时刻画一条竖线。只在 1 天以下的周期画：日线和更大的周期，每根 K 线就是一天。期货和美股按各自的交易时段画，不看这里")
 		})
 	}
 	row(c, "十字光标", func() {

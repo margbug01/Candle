@@ -92,11 +92,11 @@ func divider(c *ui.Context, k palette) { ui.Box(c).Width(1).Height(20).Shrink(0)
 // The numbers keep a fixed width: MyGo lays a frame out with the widths of
 // the one before, and a number growing would be squeezed for a frame.
 func (a *application) headline(c *ui.Context, t *ui.Theme, k palette) {
-	base, quote := a.names(a.symbol)
+	base, _ := a.names(a.symbol)
 	ui.Row(c).Shrink(0).Gap(10).Padding(0, 16).AlignItems(ui.Center).Children(func() {
 		ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
-			a.coinIcon(c, base, 22)
-			ui.RichText(c, ui.Span{Text: base, Size: 16, Weight: 600}, ui.Span{Text: suffix(quote), Size: 13, Color: t.TextMuted}).SingleLine().Shrink(0)
+			a.symIcon(c, a.symbol, 22)
+			ui.RichText(c, ui.Span{Text: base, Size: 16, Weight: 600}, ui.Span{Text: a.after(a.symbol), Size: 13, Color: t.TextMuted}).SingleLine().Shrink(0)
 		})
 		q, hasQ := a.quotes[a.symbol]
 		last, ok := q.Last, hasQ
@@ -146,15 +146,20 @@ func (a *application) status(c *ui.Context, t *ui.Theme, k palette) {
 	switch {
 	case a.err != "":
 		text, col = "加载失败", k.down
+	case a.stream == live && a.delay() > 0:
+		text, col = fmt.Sprintf("晚 %d 分", int(a.delay().Minutes())), k.amber
 	case a.stream == live:
 		text, col = "实时", paletteFor(t.Dark).up // green whichever way the bars are colored
 	case a.stream == reconnecting:
 		text, col = "重连中", k.amber
 	}
-	ui.Row(c).Width(84).Shrink(0).Gap(6).AlignItems(ui.Center).Justify(ui.End).Padding(0, 14, 0, 0).Children(func() {
+	row := ui.Row(c).Width(84).Shrink(0).Gap(6).AlignItems(ui.Center).Justify(ui.End).Padding(0, 14, 0, 0).Children(func() {
 		ui.Box(c).Size(7, 7).Radius(3.5).Background(col)
-		ui.Text(c, text).FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, text).FontSize(12).TextColor(t.TextMuted).SingleLine()
 	})
+	if d := a.delay(); d > 0 {
+		row.Tooltip(fmt.Sprintf("CME 期货的行情免费的都晚 %d 分钟：价格是交易所的真实成交，只是晚到", int(d.Minutes())))
+	}
 }
 
 // chartArea is the chart, drawn by drawChart, with the messages and the
@@ -211,9 +216,9 @@ func (a *application) chart(c *ui.Context, t *ui.Theme, k palette) {
 			}
 		})
 	case len(a.bars) == 0:
-		base, quote := a.names(a.symbol)
+		base, _ := a.names(a.symbol)
 		overlay(c).Children(func() {
-			ui.Text(c, "正在加载 "+base+suffix(quote)+" …").FontSize(13).TextColor(t.TextMuted)
+			ui.Text(c, "正在加载 "+base+a.after(a.symbol)+" …").FontSize(13).TextColor(t.TextMuted)
 		})
 	case a.view.offset < -1:
 		a.latestButton(c, k)
@@ -478,9 +483,9 @@ func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 	ui.Row(c.Key("search")).FillWidth().Height(32).Padding(0, 4, 0, 10).Gap(6).AlignItems(ui.Center).Radius(6).Background(k.field).Children(func() {
 		ui.Icon(c, searchIcon).Size(14, 14).TextColor(t.TextMuted).Shrink(0)
 		in := ui.TextInput(c.Key("query"), &a.query).Grow(1).MinWidth(0).Background(ui.Transparent).Border(0, ui.Transparent).
-			Padding(0).FontSize(13).Placeholder("搜索交易对，如 PEPE").Label("搜索交易对")
+			Padding(0).FontSize(13).Placeholder("搜索：PEPE、NQ、AAPL").Label("搜索交易对、期货、美股")
 		if in.Submitted() {
-			if hits := search(a.all, a.query, 1); len(hits) == 1 {
+			if hits := a.findings(a.query, 1); len(hits) == 1 {
 				a.pick(hits[0].Symbol)
 			}
 		}
@@ -500,30 +505,39 @@ func (a *application) searchBox(c *ui.Context, t *ui.Theme, k palette) {
 // results lists what the search finds; picking one shows it and watches it.
 func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 	note := func(s string) { ui.Text(c, s).FontSize(12).TextColor(t.TextMuted).Padding(4, 12) }
-	switch a.allState {
-	case 0, 1:
-		note("正在加载交易对列表…")
-		return
-	case 3:
-		ui.Column(c).Padding(4, 12).Gap(8).AlignItems(ui.Start).Children(func() {
-			ui.Text(c, "交易对列表没加载上").FontSize(12).TextColor(t.TextMuted)
+	q := strings.TrimSpace(a.query)
+	a.searchUS(q)
+	if a.allState == 3 {
+		ui.Row(c).Padding(4, 12).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "币安的交易对列表没加载上").FontSize(12).TextColor(t.TextMuted)
 			if ui.Button(c, "重试").Clicked() {
 				a.loadAll()
 			}
 		})
-		return
 	}
-	hits := search(a.all, a.query, 50)
+	hits := a.findings(q, 50)
 	if len(hits) == 0 {
-		note("没有找到「" + strings.TrimSpace(a.query) + "」")
+		switch {
+		case a.allState < 2 || a.usAsking == q:
+			note("正在搜索「" + q + "」…")
+		default:
+			note("没有找到「" + q + "」")
+		}
 		return
 	}
 	header(c, t, "搜索结果")
 	ui.Scroll(c.Key("results")).Grow(1).FillWidth().MinHeight(0).Children(func() {
 		for _, h := range hits {
-			if open, _ := a.quoteRow(c, t, k, h.Symbol, h, true, false); open {
+			qt, hasQ := a.quotes[h.Symbol]
+			if !market.IsYahoo(h.Symbol) {
+				qt, hasQ = h, true // Binance's list has the day's move
+			}
+			if open, _ := a.quoteRow(c, t, k, h.Symbol, qt, hasQ, false); open {
 				a.pick(h.Symbol)
 			}
+		}
+		if a.usAsking == q {
+			note("正在问 Yahoo 美股…")
 		}
 	})
 }
@@ -540,10 +554,10 @@ func (a *application) quoteRow(c *ui.Context, t *ui.Theme, k palette, sym string
 		row.Background(k.hover)
 	}
 	row.Children(func() {
-		base, quote := a.names(sym)
+		base, _ := a.names(sym)
 		ui.Row(c).Grow(1).MinWidth(0).Gap(8).AlignItems(ui.Center).Children(func() {
-			a.coinIcon(c, base, 20)
-			ui.RichText(c, ui.Span{Text: base, Size: 13, Weight: 600}, ui.Span{Text: suffix(quote), Size: 11, Color: t.TextMuted}).
+			a.symIcon(c, sym, 20)
+			ui.RichText(c, ui.Span{Text: base, Size: 13, Weight: 600}, ui.Span{Text: a.after(sym), Size: 11, Color: t.TextMuted}).
 				Grow(1).MinWidth(0).SingleLine()
 		})
 		price, change, col := "—", "", t.TextMuted
@@ -569,8 +583,8 @@ func (a *application) quoteRow(c *ui.Context, t *ui.Theme, k palette, sym string
 // priceText is a price in a list: at the market's step once known, else as
 // short as it goes.
 func (a *application) priceText(sym string, p float64) string {
-	if s, ok := a.infos[sym]; ok && s.Tick > 0 {
-		return formatPrice(p, decimals(s.Tick))
+	if tick := a.tick(sym); tick > 0 {
+		return formatPrice(p, decimals(tick))
 	}
 	return strconv.FormatFloat(p, 'f', -1, 64)
 }

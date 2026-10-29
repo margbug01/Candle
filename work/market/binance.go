@@ -56,6 +56,7 @@ func (b Binance) ServerTime(ctx context.Context) (int64, error) {
 type Symbol struct {
 	Name, Base, Quote string
 	Tick              float64 // the smallest price step
+	Desc              string  // what it is, where the name does not say: "纳指 E-mini", "Apple Inc."
 }
 
 // Symbols looks markets up by name. One unknown name fails the whole lookup.

@@ -237,7 +237,15 @@ func niceStep(span float64, n int) float64 {
 }
 
 // decimals is how many decimals prices with this smallest step show.
-func decimals(tick float64) int { return max(0, int(math.Round(-math.Log10(tick)))) }
+func decimals(tick float64) int {
+	for d := range 10 { // 0.25 takes two, as 0.01 does
+		v := tick * math.Pow(10, float64(d))
+		if math.Abs(v-math.Round(v)) < 1e-9*max(1, v) {
+			return d
+		}
+	}
+	return 10
+}
 
 // autoDecimals guesses, from a price, the decimals of a market whose step is
 // not known yet: about five significant digits, two to ten decimals.
@@ -371,18 +379,18 @@ type dayBreak struct {
 	frac float32
 }
 
-// dayBreaks are where days begin, at midnight in loc, among bars from..to,
-// ivMs long. A day beginning while a bar is open, as a 12-hour bar opening
-// at 20:00 is, is marked inside it; one in a gap of the data, at the open
-// of the bar after the gap.
-func dayBreaks(bars []market.Bar, from, to int, ivMs int64, loc *time.Location) []dayBreak {
+// dayBreaks are where days begin among bars from..to, ivMs long; dayOf is
+// when the day holding a time (Unix ms) began: midnight somewhere, or a
+// session's opening. A day beginning while a bar is open, as a 12-hour bar
+// opening at 20:00 is, is marked inside it; one in a gap of the data, at the
+// open of the bar after the gap.
+func dayBreaks(bars []market.Bar, from, to int, ivMs int64, dayOf func(int64) int64) []dayBreak {
 	var out []dayBreak
 	for i := max(from, 1); i <= min(to+1, len(bars)-1); i++ {
-		a, b := time.UnixMilli(bars[i-1].T).In(loc), time.UnixMilli(bars[i].T).In(loc)
-		if a.YearDay() == b.YearDay() && a.Year() == b.Year() {
+		m := dayOf(bars[i].T)
+		if dayOf(bars[i-1].T) == m {
 			continue
 		}
-		m := time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, loc).UnixMilli()
 		if prev := bars[i-1].T; m > prev && m < prev+ivMs {
 			out = append(out, dayBreak{i - 1, float32(m-prev) / float32(ivMs)})
 		} else {
@@ -390,6 +398,76 @@ func dayBreaks(bars []market.Bar, from, to int, ivMs int64, loc *time.Location) 
 		}
 	}
 	return out
+}
+
+// searchAll finds markets of every source by name: Binance's pairs, the
+// CME futures and the US stocks Yahoo found for the query. The code itself
+// (BTC for BTCUSDT) comes first, then codes starting with the query, then
+// codes holding it, then names holding it; on a par, pairs before futures
+// before stocks, USDT pairs before others, busiest first.
+func searchAll(query string, pairs []market.Ticker, futures, stocks []market.Instrument, limit int) []market.Ticker {
+	norm := strings.NewReplacer("/", "", "-", "", " ", "")
+	q := strings.ToUpper(norm.Replace(query))
+	if q == "" {
+		return nil
+	}
+	rankOf := func(code string) int {
+		code = strings.ToUpper(norm.Replace(code))
+		switch {
+		case code == q:
+			return 0
+		case strings.HasPrefix(code, q):
+			return 1
+		case strings.Contains(code, q):
+			return 2
+		}
+		return -1
+	}
+	type hit struct {
+		t          market.Ticker
+		rank, from int
+	}
+	var hits []hit
+	for _, t := range pairs {
+		r := rankOf(t.Symbol)
+		if t.Symbol == q+"USDT" {
+			r = 0
+		}
+		if r < 0 {
+			continue
+		}
+		if !strings.HasSuffix(t.Symbol, "USDT") {
+			r += 2
+		}
+		hits = append(hits, hit{t, r, 0})
+	}
+	for k, list := range [][]market.Instrument{futures, stocks} {
+		for _, in := range list {
+			r := rankOf(in.Code)
+			if r < 0 && (k == 1 || strings.Contains(strings.ToUpper(in.Name), strings.ToUpper(strings.TrimSpace(query)))) {
+				r = 3 // Yahoo found a stock by its name
+			}
+			if r >= 0 {
+				hits = append(hits, hit{market.Ticker{Symbol: in.ID}, r, k + 1})
+			}
+		}
+	}
+	slices.SortStableFunc(hits, func(a, b hit) int {
+		return cmp.Or(cmp.Compare(a.rank, b.rank), cmp.Compare(a.from, b.from), cmp.Compare(b.t.QuoteVolume, a.t.QuoteVolume))
+	})
+	out := make([]market.Ticker, 0, min(len(hits), limit))
+	for _, h := range hits[:min(len(hits), limit)] {
+		out = append(out, h.t)
+	}
+	return out
+}
+
+// midnights is dayOf for days beginning at midnight in loc.
+func midnights(loc *time.Location) func(int64) int64 {
+	return func(ms int64) int64 {
+		t := time.UnixMilli(ms).In(loc)
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc).UnixMilli()
+	}
 }
 
 // merge puts got into have by open time, replacing bars it already has, and
@@ -414,46 +492,4 @@ func merge(have, got []market.Bar) ([]market.Bar, int) {
 		}
 	}
 	return have, added
-}
-
-// search finds markets by name: the name itself, then names starting with
-// the query, then names holding it, USDT markets first, busiest first.
-func search(all []market.Ticker, query string, limit int) []market.Ticker {
-	q := strings.ToUpper(strings.NewReplacer("/", "", "-", "", " ", "").Replace(query))
-	if q == "" {
-		return nil
-	}
-	type hit struct {
-		t    market.Ticker
-		rank int
-	}
-	var hits []hit
-	for _, t := range all {
-		var rank int
-		switch {
-		case t.Symbol == q:
-			rank = 0
-		case strings.HasPrefix(t.Symbol, q):
-			rank = 1
-		case strings.Contains(t.Symbol, q):
-			rank = 2
-		default:
-			continue
-		}
-		if rank > 0 && !strings.HasSuffix(t.Symbol, "USDT") {
-			rank += 2
-		}
-		hits = append(hits, hit{t, rank})
-	}
-	slices.SortFunc(hits, func(a, b hit) int {
-		if a.rank != b.rank {
-			return a.rank - b.rank
-		}
-		return cmp.Compare(b.t.QuoteVolume, a.t.QuoteVolume)
-	})
-	out := make([]market.Ticker, 0, min(len(hits), limit))
-	for _, h := range hits[:min(len(hits), limit)] {
-		out = append(out, h.t)
-	}
-	return out
 }

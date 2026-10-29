@@ -15,6 +15,20 @@ type Bar struct {
 	V          float64
 }
 
+// A Feed is where a market's bars and quotes come from: Binance for its spot
+// pairs, Yahoo for CME futures and US stocks.
+type Feed interface {
+	Klines(ctx context.Context, symbol, interval string, end int64, limit int) ([]Bar, error)
+	Stream(ctx context.Context, symbol, interval string, fn func(bar Bar, closed bool, at int64)) error
+	Symbols(ctx context.Context, names ...string) ([]Symbol, error)
+	Watch(ctx context.Context, symbols []string, fn func(Ticker)) error
+}
+
+var (
+	_ Feed = Binance{}
+	_ Feed = Yahoo{}
+)
+
 func get(ctx context.Context, c *http.Client, u string) ([]byte, error) {
 	if c == nil {
 		c = http.DefaultClient

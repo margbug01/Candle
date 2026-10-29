@@ -137,3 +137,82 @@ func gapCount(bars []market.Bar, ms int64) (n int) {
 	}
 	return n
 }
+
+// TestLiveYahoo runs the app on Yahoo's futures and stocks, through the
+// system proxy: a chart that loads and follows, the watchlist's quotes and
+// the search. CANDLE_LIVE=1 turns it on.
+func TestLiveYahoo(t *testing.T) {
+	if os.Getenv("CANDLE_LIVE") == "" {
+		t.Skip("CANDLE_LIVE is not set")
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = market.SystemProxy
+	queue := make(chan func(), 1024)
+	set := defaultSettings()
+	set.Watch = []string{"CME:NQ", "CME:MNQ", "US:AAPL", "BTCUSDT"}
+	a := newApplication(set, "", market.Binance{HTTP: &http.Client{Transport: tr, Timeout: 30 * time.Second}}, func(f func()) { queue <- f })
+	run := func(what string, d time.Duration, done func() bool) {
+		t.Helper()
+		deadline := time.After(d)
+		for !done() {
+			select {
+			case f := <-queue:
+				f()
+			case <-deadline:
+				t.Fatalf("%s: not after %v", what, d)
+			}
+		}
+	}
+	t0 := time.Now()
+	a.open("CME:MNQ", "5m")
+	a.watchQuotes()
+	run("MNQ bars", 30*time.Second, func() bool { return len(a.bars) > 0 || a.err != "" })
+	if a.err != "" {
+		t.Fatal(a.err)
+	}
+	last := a.bars[len(a.bars)-1]
+	t.Logf("MNQ 5m: %d bars in %v, newest %s %+v", len(a.bars), time.Since(t0).Round(time.Millisecond), time.UnixMilli(last.T).Format("01-02 15:04"), last)
+	if len(a.bars) != 1000 || a.atStart {
+		t.Fatalf("MNQ 5m: %d bars, at the start %v", len(a.bars), a.atStart)
+	}
+	run("MNQ following", 20*time.Second, func() bool { return a.stream == live })
+	run("quotes", 30*time.Second, func() bool {
+		return a.quotes["CME:NQ"].Last > 0 && a.quotes["US:AAPL"].Last > 0 && a.quotes["BTCUSDT"].Last > 0 && a.infos["US:AAPL"].Desc != ""
+	})
+	t.Logf("quotes after %v: NQ %+v, AAPL %+v (%s, tick %v)", time.Since(t0).Round(time.Millisecond), a.quotes["CME:NQ"], a.quotes["US:AAPL"], a.infos["US:AAPL"].Desc, a.infos["US:AAPL"].Tick)
+	a.query = "apple"
+	a.searchUS("apple")
+	run("search", 30*time.Second, func() bool { return a.usFound["apple"] != nil })
+	hits := a.findings("apple", 5)
+	if len(hits) == 0 || hits[0].Symbol != "US:AAPL" {
+		t.Fatalf("apple: %+v", hits)
+	}
+	// Scrolled to the first bar, the page before it comes in.
+	a.plotW = 900
+	a.view.pan(1e6)
+	a.view.clamp(a.plotW, len(a.bars))
+	first := a.bars[0].T
+	a.loadOlder()
+	run("older page", 30*time.Second, func() bool { return !a.older })
+	if len(a.bars) <= 1000 || a.bars[len(a.bars)-1000].T != first {
+		t.Fatalf("after the older page: %d bars", len(a.bars))
+	}
+	zero := 0
+	for _, b := range a.bars {
+		if b.V == 0 {
+			zero++
+		}
+	}
+	t.Logf("%d bars, %d with no volume", len(a.bars), zero)
+	a.view = defaultView()
+	tt := newTester(a, true)
+	for range 20 {
+		select {
+		case f := <-queue:
+			f()
+		default:
+		}
+		tt.Frame()
+	}
+	shot(t, tt, "live-mnq-5m")
+}
