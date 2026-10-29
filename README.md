@@ -4,11 +4,11 @@
 
 # Candle
 
-一个照着 TradingView 做的 Binance K 线图
+一个照着 TradingView 做的 K 线图：Binance 现货、CME 期货、美股
 
 Go 写的原生 Windows / macOS 程序，不是网页套壳。拖动、缩放、十字光标、指标、画线、盈亏比，手感和 TradingView 对得上；一个 exe 或一个 app，不用账号，不用 API Key。
 
-![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-23272e?style=flat-square&logo=windows&logoColor=white) ![macOS 12+](https://img.shields.io/badge/macOS-12%2B-23272e?style=flat-square&logo=apple&logoColor=white) ![Go 1.27](https://img.shields.io/badge/Go-1.27-23272e?style=flat-square&logo=go&logoColor=white) ![MyGo](https://img.shields.io/badge/UI-MyGo-26a69a?style=flat-square) ![Binance 现货](https://img.shields.io/badge/数据-Binance%20现货-f0b90b?style=flat-square) ![MIT](https://img.shields.io/badge/license-MIT-26a69a?style=flat-square)
+![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-23272e?style=flat-square&logo=windows&logoColor=white) ![macOS 12+](https://img.shields.io/badge/macOS-12%2B-23272e?style=flat-square&logo=apple&logoColor=white) ![Go 1.27](https://img.shields.io/badge/Go-1.27-23272e?style=flat-square&logo=go&logoColor=white) ![MyGo](https://img.shields.io/badge/UI-MyGo-26a69a?style=flat-square) ![Binance · Yahoo](https://img.shields.io/badge/数据-Binance%20·%20Yahoo-f0b90b?style=flat-square) ![MIT](https://img.shields.io/badge/license-MIT-26a69a?style=flat-square)
 
 <img src="docs/screenshots/hero.webp" width="900" alt="主图加 MA、成交量和 MACD，浅色和深色">
 
@@ -22,11 +22,11 @@ Go 写的原生 Windows / macOS 程序，不是网页套壳。拖动、缩放、
 
 **画线和盈亏比。** 趋势线、射线、水平线、水平射线、垂直线、平行通道、矩形、斐波那契回撤、价格区间、文字，外加多头和空头盈亏比：点一下放好入场、止盈、止损，填上账户金额和风险比例，就能算出该开多少仓、打到止盈止损各赚亏多少。有磁吸，能撤销重做、复制粘贴、锁定。画线按交易对保存，锚点记的是时间，换个周期也落在同一时刻。
 
-**全部交易对，实时跳动。** 右栏搜索 Binance 现货的 1300 多个交易对，点一下就看、顺手加进自选；自选列表的 24 小时行情实时更新，每个币前面带着它的图标。断线会自动重连并补齐漏掉的 K 线，往左拖到头会自动加载更早的历史。
+**币、期货、美股放在一起。** 右栏一个搜索框，搜 Binance 现货的 1300 多个交易对、CME 的纳指/标普/道指/罗素/黄金/原油期货（NQ、MNQ、ES、MES 这些，大小合约各是各的成交）和纽约上市的美股、ETF，代码、英文名、中文名都能搜，点一下就看、顺手加进自选。币的行情实时跳，每个币前面带着它的图标；期货晚 10 分钟（见常见问题）。断线会自动重连并补齐漏掉的 K 线，往左拖到头会自动加载更早的历史。
 
 **设置能调的都给你。** 五种图表类型、涨跌色、按前收盘价着色、标签颜色（白涨黑跌配白底也看得清）、时区、日期和时间格式、网格、每天一条的交易日分隔线、十字光标样式、水印、边距……改了立刻生效，点取消就还原。浅色、深色或跟随系统。
 
-**小、安静。** Windows 上一个 13 MB 的 exe，macOS 上一个 12 MB 的 app，不用装运行时。只用 Binance 的公开行情，不需要登录，也不碰你的账户。
+**小、安静。** Windows 上一个 13 MB 的 exe，macOS 上一个 12 MB 的 app，不用装运行时。只用公开行情，不需要登录，也不碰你的账户。
 
 ## 截图
 
@@ -48,7 +48,8 @@ Go 写的原生 Windows / macOS 程序，不是网页套壳。拖动、缩放、
 - **Windows 10 / 11**：`Candle-v<版本>-windows-x64.zip`，解压到自己的文件夹（比如桌面或 `D:\Candle`），打开里面的 `Candle.exe`。别放进 `Program Files` 这类没有写入权限的地方，不然没法自己更新。
 - **macOS 12 及以上（Apple 芯片）**：`Candle-v<版本>-macos-arm64.dmg`，把 Candle 拖进「应用程序」再打开。第一次打开被系统拦下的话，看下面的常见问题。
 
-- 行情来自 Binance 的公开行情服务 `data-api.binance.vision` 和 `data-stream.binance.vision`，不需要 API Key。
+- 币的行情来自 Binance 的公开行情服务 `data-api.binance.vision` 和 `data-stream.binance.vision`，不需要 API Key。
+- 期货和美股的行情来自 Yahoo Finance 网页自己用的接口（`query1/query2.finance.yahoo.com`），不是公开 API，Yahoo 随时可能改或限流。在中国大陆要开代理才连得上。Candle 里期货写作 `CME:NQ`、美股写作 `US:AAPL`，币还是 `BTCUSDT`。
 - 网络连不上 Binance 时，Candle 会走系统代理：Windows 上是「设置 › 网络和 Internet › 代理」，macOS 上是「系统设置 › 网络 › 代理」，Clash、v2rayN、Shoes 打开的就是它；也认 `HTTPS_PROXY` / `HTTP_PROXY` 环境变量。
 - 币的图标来自 Binance 官网（`www.binance.com` 的资产列表和 `bin.bnbstatic.com` 上的图片），下载一次就存进缓存文件夹（Windows 上 `%LOCALAPPDATA%\Candle`，macOS 上 `~/Library/Caches/Candle`），以后打开不用再下；列表一周更新一次，遇到列表里没有的新币会马上再问一次。在中国大陆连 binance.com 要开代理，连不上时图标位置显示币名的首字母，行情不受影响。
 - 自选、周期、指标、画线和图表设置都存在 `%APPDATA%\Candle\settings.json`（macOS 上是 `~/Library/Application Support/Candle/settings.json`），指标是所有交易对共用的，画线跟着交易对走。
@@ -114,7 +115,8 @@ MA、EMA、BOLL、MACD、RSI 可以换源（开、高、低、收、hl2、hlc3�
 
 ## 还没做的
 
-- 只接了 Binance 现货；合约和美股还没有
+- A 股、港股还没接；币安合约也没有
+- CME 期货是晚 10 分钟的；要实时得接券商（以后的事）
 - 警报、脚本、多图布局、指标模板
 - macOS 只做了 Apple 芯片的版本，没有 Intel 的
 
@@ -135,9 +137,25 @@ EMA、RSI、MACD 都是递推的，开头几十根会受起点影响，加载的
 </details>
 
 <details>
+<summary><b>期货为什么晚 10 分钟？</b></summary>
+
+CME 的实时行情要向交易所付费授权，免费渠道（Yahoo、TradingView 免费版、OpenMarket 免费版）都是晚 10 分钟。Candle 用的是 Yahoo 的数据：价格是交易所的真实成交，落在合约的最小跳动上（NQ 0.25），只是晚到，顶栏右边会写「晚 10 分」。国内门户网站的「实时」外盘期货价是加工过的近似值，和真实成交差几个点，画线、算止损不能用，所以没用。要实时只能接券商（IBKR、Tradovate、富途等）并开 CME 行情，以后会做。美股是 Yahoo 盘中的价格。
+
+Yahoo 自己的数据里，CME 每个交易时段的第一根 5 分钟线（纽约时间 18:00）没有成交量，图上那根量柱是空的，不是 Candle 的问题。
+
+</details>
+
+<details>
+<summary><b>期货、美股的历史能拖多远？</b></summary>
+
+Yahoo 给多少就有多少：1 分钟线最近 30 天，5 分钟、15 分钟 60 天，1 小时和 4 小时 730 天，日线、周线全部。4 小时线是用 1 小时线从交易时段开头合出来的（期货 18:00、22:00、2:00…，美股 9:30、13:30，纽约时间），和 TradingView 一样。
+
+</details>
+
+<details>
 <summary><b>交易日分隔线在哪开？一天从几点算？</b></summary>
 
-「设置 › 版面 › 交易日分隔线」，颜色、线型（虚线、点线、实线）、粗细（1–4 像素）都能改。「一天的起点」默认是图表时区的 0 点（跟时间轴上加粗的「29日」对齐）；选「UTC 0 点」就和 Binance 的日线开盘对齐，北京时间是早上 8 点。线画在这一天第一根 K 线的左边沿；12 小时线这类跨过 0 点的 K 线，线画在 K 线里 0 点对应的位置。日线和更大的周期每根 K 线就是一天，不画。
+「设置 › 版面 › 交易日分隔线」，颜色、线型（虚线、点线、实线）、粗细（1–4 像素）都能改。期货和美股按各自的交易时段画（期货纽约时间 18:00 开盘，美股 9:30），下面说的「一天的起点」只管币。「一天的起点」默认是图表时区的 0 点（跟时间轴上加粗的「29日」对齐）；选「UTC 0 点」就和 Binance 的日线开盘对齐，北京时间是早上 8 点。线画在这一天第一根 K 线的左边沿；12 小时线这类跨过 0 点的 K 线，线画在 K 线里 0 点对应的位置。日线和更大的周期每根 K 线就是一天，不画。
 
 </details>
 

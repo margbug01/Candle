@@ -225,7 +225,7 @@ func (a *application) openAbout() {
 func (a *application) aboutPage(c *ui.Context, t *ui.Theme, k palette) {
 	u := &a.upd
 	section(c, t, "Candle")
-	infoRow(c, t, "版本 "+appVersion(), "照着 TradingView 做的 Binance K 线图。和 TradingView、Binance 没有关系，也不构成任何投资建议", func() {
+	infoRow(c, t, "版本 "+appVersion(), "照着 TradingView 做的 K 线图，行情来自 Binance 和 Yahoo。和 TradingView、Binance、Yahoo 都没有关系，也不构成任何投资建议", func() {
 		ui.Link(c, "GitHub", "https://github.com/margbug01/Candle")
 	})
 	section(c, t, "更新")

@@ -460,7 +460,7 @@ func (a *application) watchlist(c *ui.Context, t *ui.Theme, k palette) {
 				}
 			}
 			if len(a.set.Watch) == 0 {
-				ui.Text(c, "在上面搜索交易对，点一下就会加进来").FontSize(12).TextColor(t.TextMuted).Padding(12)
+				ui.Text(c, "在上面搜索币、期货或美股，点一下就会加进来").FontSize(12).TextColor(t.TextMuted).Padding(12)
 			}
 		})
 		if drop != "" {
