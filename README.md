@@ -274,7 +274,7 @@ app 的名字、bundle id 和版本在 `work/mygo.json`。没配开发者证书�
 - 图标的母版是 [docs/icon.svg](docs/icon.svg)。exe 的图标、版本和 manifest 在 `work/rsrc_windows_amd64.syso`，改了用 go-winres 重新生成：
 
 ```powershell
-go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon assets/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.4.2 --file-version 0.4.2 --original-filename Candle.exe
+go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon assets/icon.png --manifest gui --product-name Candle --file-description "Candle K 线图" --product-version 0.5.0 --file-version 0.5.0 --original-filename Candle.exe
 ```
 
 - macOS 的图标另有母版 [docs/icon-macos.svg](docs/icon-macos.svg)：同一个图案，按 Mac 图标的网格缩到 824 像素，带阴影。改了在 Mac 上回到仓库根目录重新生成 `work/assets/icon-macos.png`（用系统的 Quick Look 渲染，不用装别的）：
