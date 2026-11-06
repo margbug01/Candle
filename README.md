@@ -4,6 +4,10 @@
 
 # Candle
 
+A native Windows and macOS market charting app with Binance markets, CME futures, US stocks, technical indicators and drawing tools.
+
+[官网 / Website](https://margbug01.github.io/Candle/) · [English](https://margbug01.github.io/Candle/en.html) · [下载 / Download](https://github.com/margbug01/Candle/releases/latest)
+
 一个照着 TradingView 做的 K 线图：Binance 现货和永续、CME 期货、美股
 
 Go 写的原生 Windows / macOS 程序，不是网页套壳。拖动、缩放、十字光标、指标、画线、盈亏比，手感和 TradingView 对得上；一个 exe 或一个 app，不用账号，不用 API Key。
@@ -319,3 +323,13 @@ Candle 是个人项目，和 TradingView、Binance 没有关系，也不构成�
 ## 许可证
 
 Candle 以 [MIT](LICENSE) 发布。编进程序的 MyGo、coder/websocket、Go 标准库等第三方代码按各自的许可证分发，原文都在 [`licenses/`](licenses/)：Windows 版在 `Candle.exe` 旁边，macOS 版在 `Candle.app/Contents/Resources/licenses/`。
+
+## Website / 官网维护
+
+The GitHub Pages site is published from `docs/` on `main`. Keep both language pages and `docs/sitemap.xml` in sync when changing product details. No build step is required.
+
+官网从 `main` 分支的 `docs/` 发布。更新功能说明时同步修改中英文页面和 `docs/sitemap.xml`，不需要构建。
+
+## More MyGo apps / 其他作品
+
+[Mami](https://github.com/margbug01/mami) · [MySpotify](https://github.com/margbug01/MySpotify) · [MyShoes](https://github.com/margbug01/ShoesGUI) · [Candle](https://github.com/margbug01/Candle)
