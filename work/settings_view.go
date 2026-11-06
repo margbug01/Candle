@@ -238,6 +238,10 @@ func (a *application) symbolPage(c *ui.Context, t *ui.Theme, k palette) {
 		a.dropdown(c, "价格精度", precisions, strconv.Itoa(st.Precision), func(v string) { st.Precision, _ = strconv.Atoi(v) })
 	})
 	row(c, "时区", func() { a.dropdown(c, "时区", timeZones, st.Zone, func(v string) { st.Zone = v }) })
+	row(c, "一天的起点", func() {
+		a.dropdown(c, "一天的起点", dayStarts(st), st.BreakZone, func(v string) { st.BreakZone = v }).Width(300).
+			Tooltip("自选和顶栏里币安交易对的涨跌幅从这个时刻的价格算起（搜索结果是 24 小时）；交易日分隔线也画在这个时刻，只在 1 天以下的周期画。美股、期货、A 股、港股跟昨收比，分隔线按各自的交易时段画，不看这里")
+	})
 }
 
 func (a *application) statusPage(c *ui.Context, t *ui.Theme, k palette) {
@@ -309,12 +313,6 @@ func (a *application) canvasPage(c *ui.Context, t *ui.Theme, k palette) {
 		a.dropdown(c, "分隔线线型", crossStyles, st.BreakStyle, func(v string) { st.BreakStyle = v }).Width(96)
 		a.dropdown(c, "分隔线粗细", lineWidths, strconv.Itoa(st.BreakWidth), func(v string) { st.BreakWidth, _ = strconv.Atoi(v) }).Width(96)
 	})
-	if st.Breaks {
-		row(c, "一天的起点", func() {
-			a.dropdown(c, "一天的起点", dayStarts(st), st.BreakZone, func(v string) { st.BreakZone = v }).Width(300).
-				Tooltip("每天在这个时刻画一条竖线。只在 1 天以下的周期画：日线和更大的周期，每根 K 线就是一天。期货和美股按各自的交易时段画，不看这里")
-		})
-	}
 	row(c, "十字光标", func() {
 		a.well(c, "十字光标颜色", st.Cross.or(k.cross), func(h hexColor) { st.Cross = h })
 		a.dropdown(c, "十字光标线型", crossStyles, st.CrossStyle, func(v string) { st.CrossStyle = v })

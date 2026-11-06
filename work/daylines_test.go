@@ -122,18 +122,17 @@ func TestDayLines(t *testing.T) {
 }
 
 // The settings: the lines on with their color, style and width, and when
-// a day begins, as the dialog sets them.
+// a day begins, as the dialog sets them: beside the time zone, lines or
+// none, since the watchlist's moves count from it too.
 func TestDayLineSettings(t *testing.T) {
 	a := testApp()
 	a.set.Chart.Zone = "Asia/Shanghai"
 	tt := newTester(a, true)
 	openSettings(t, tt, "版面")
-	if tt.HasText("一天的起点") {
-		t.Fatal("when a day begins shows with the lines off")
-	}
 	click(t, tt, "交易日分隔线")
 	click(t, tt, "1 像素")
 	click(t, tt, "3 像素")
+	click(t, tt, "商品")
 	click(t, tt, "图表时区 0 点")
 	click(t, tt, "UTC 0 点（图表时间 08:00，币安日线开盘）")
 	click(t, tt, "确认")

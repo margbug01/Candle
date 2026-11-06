@@ -118,12 +118,14 @@ func (a *application) headline(c *ui.Context, t *ui.Theme, k palette) {
 			return
 		}
 		col := t.Text
-		if hasQ {
-			col = k.move(q.Change())
+		chg, moved := a.change(a.symbol, q)
+		moved = moved && hasQ
+		if moved {
+			col = k.move(chg)
 		}
 		ui.Text(c, a.priceText(a.symbol, last)).FontSize(15).FontWeight(600).FontFeatures("tnum").TextColor(col).Width(96).Shrink(0).SingleLine()
-		if hasQ {
-			ui.Text(c, fmt.Sprintf("%+.2f%%", q.Change()*100)).FontSize(12).FontFeatures("tnum").TextColor(col).Width(60).Shrink(0)
+		if moved {
+			ui.Text(c, fmt.Sprintf("%+.2f%%", chg*100)).FontSize(12).FontFeatures("tnum").TextColor(col).Width(60).Shrink(0)
 		}
 	})
 }
@@ -575,18 +577,19 @@ func (a *application) watchlist(c *ui.Context, t *ui.Theme, k palette) {
 			a.results(c, t, k)
 			return
 		}
-		header(c, t, "自选")
+		header(c, t, "自选", "涨跌")
 		a.watchlistRows(c, t, k)
 	})
+	a.askDayOpens(append(slices.Clone(a.set.Watch), a.symbol))
 }
 
-func header(c *ui.Context, t *ui.Theme, title string) {
+func header(c *ui.Context, t *ui.Theme, title, change string) {
 	// Its right padding lines the columns up with the rows: 6 of padding, 20
 	// for the remove button and 6 of gap.
 	ui.Row(c).FillWidth().Shrink(0).Padding(2, 32, 6, 12).Gap(6).Children(func() {
 		ui.Text(c, title).FontSize(12).TextColor(t.TextMuted).Grow(1)
 		ui.Text(c, "最新价").FontSize(12).TextColor(t.TextMuted).Width(92).TextAlign(ui.End)
-		ui.Text(c, "24h").FontSize(12).TextColor(t.TextMuted).Width(58).TextAlign(ui.End)
+		ui.Text(c, change).FontSize(12).TextColor(t.TextMuted).Width(58).TextAlign(ui.End)
 	})
 }
 
@@ -654,7 +657,7 @@ func (a *application) results(c *ui.Context, t *ui.Theme, k palette) {
 		}
 	}
 	a.priceHits(q, shown)
-	header(c, t, "搜索结果")
+	header(c, t, "搜索结果", "24h")
 	var picked, expand string
 	back := false
 	ui.Scroll(c.Key("results")).Grow(1).FillWidth().MinHeight(0).Children(func() {
@@ -768,7 +771,14 @@ func (a *application) quoteRow(c *ui.Context, t *ui.Theme, k palette, sym string
 		price, change, col := "—", "", t.TextMuted
 		if hasQ {
 			price = a.priceText(sym, q.Last)
-			change, col = fmt.Sprintf("%+.2f%%", q.Change()*100), k.move(q.Change())
+			// The watchlist's moves count from when the day began, the search's over 24 hours.
+			chg, ok := q.Change(), true
+			if removable {
+				chg, ok = a.change(sym, q)
+			}
+			if ok {
+				change, col = fmt.Sprintf("%+.2f%%", chg*100), k.move(chg)
+			}
 		}
 		ui.Text(c, price).FontSize(13).FontFeatures("tnum").Width(92).Shrink(0).TextAlign(ui.End).SingleLine()
 		ui.Text(c, change).FontSize(12).FontFeatures("tnum").TextColor(col).Width(58).Shrink(0).TextAlign(ui.End)

@@ -92,6 +92,7 @@ type application struct {
 	watchList  ui.ListState
 	found      foundCache
 	priced     map[string]time.Time // when the results' prices were asked for
+	dayOpens   map[string]dayOpen   // Binance's markets' prices as the day began, by symbol
 
 	// The drawings: the tool in hand, what is copied and on which market.
 	tool    string
@@ -135,7 +136,7 @@ type application struct {
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {
 	a := &application{
 		bin: bin, yahoo: market.Yahoo{HTTP: bin.HTTP}, perp: market.Perp{HTTP: bin.HTTP}, east: market.Eastmoney{HTTP: bin.HTTP}, post: post, file: file, set: set,
-		usFound: map[string][]market.Instrument{}, usNames: map[string]string{}, priced: map[string]time.Time{},
+		usFound: map[string][]market.Instrument{}, usNames: map[string]string{}, priced: map[string]time.Time{}, dayOpens: map[string]dayOpen{},
 		zhFound: map[string][]market.Instrument{}, zhNames: map[string]string{},
 		usFetch: func(ctx context.Context) ([]byte, error) { return market.USList(ctx, bin.HTTP) },
 		spawn:   func(f func()) { go f() },
