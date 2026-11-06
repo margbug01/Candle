@@ -28,7 +28,8 @@ var (
 )
 
 const (
-	toolsW    = 44
+	toolsW    = 52  // the column of tools on the left
+	toolBtn   = 38  // a button in it, the column whole in the window as it first opens
 	undoLimit = 100 // steps back the drawings remember
 )
 
@@ -399,11 +400,11 @@ func (a *application) toolsColumn(c *ui.Context, t *ui.Theme, k palette) {
 }
 
 func toolSeparator(c *ui.Context, k palette) {
-	ui.Box(c).Width(24).Height(1).Shrink(0).Margin(4, 0).Background(k.line)
+	ui.Box(c).Width(30).Height(1).Shrink(0).Margin(4, 0).Background(k.line)
 }
 
 func toolButton(c *ui.Context, t *ui.Theme, k palette, key, tip string, icon *ui.SVG, on bool) ui.Element {
-	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Shrink(0).Center().Radius(6).Cursor(ui.CursorPointer).Label(tip).Tooltip(tip)
+	b := ui.ButtonBase(c.Key(key)).Size(toolBtn, toolBtn).Shrink(0).Center().Radius(6).Cursor(ui.CursorPointer).Label(tip).Tooltip(tip)
 	col := t.Text
 	switch {
 	case on:
@@ -412,7 +413,7 @@ func toolButton(c *ui.Context, t *ui.Theme, k palette, key, tip string, icon *ui
 	case b.Hovered():
 		b.Background(k.hover)
 	}
-	return b.Children(func() { ui.Icon(c, icon).Size(18, 18).TextColor(col) })
+	return b.Children(func() { ui.Icon(c, icon).Size(22, 22).TextColor(col) })
 }
 
 // barButton is an icon button of the drawing bar, named label, explained by tip.

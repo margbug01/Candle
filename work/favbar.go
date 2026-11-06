@@ -17,8 +17,8 @@ var (
 )
 
 const (
-	favButton = 30 // a tool's button on the bar
-	favGrip   = 16
+	favButton = 38 // a tool's button on the bar
+	favGrip   = 20
 )
 
 func (a *application) isFav(kind string) bool { return slices.Contains(a.set.FavTools, kind) }
@@ -104,7 +104,7 @@ func (a *application) favBar(c *ui.Context, t *ui.Theme, k palette) {
 		if grip.Hovered() || grip.Dragging() {
 			grip.Background(k.hover)
 		}
-		grip.Children(func() { ui.Icon(c, gripIcon).Size(14, 14).TextColor(t.TextMuted) })
+		grip.Children(func() { ui.Icon(c, gripIcon).Size(17, 17).TextColor(t.TextMuted) })
 		if dx, dy, ok := grip.Dragged(); ok && (dx != 0 || dy != 0) {
 			a.moveFav(dx, dy)
 			c.Invalidate()
@@ -127,7 +127,7 @@ func (a *application) favBar(c *ui.Context, t *ui.Theme, k palette) {
 			case b.Hovered():
 				b.Background(k.hover)
 			}
-			b.Children(func() { ui.Icon(c, tl.icon).Size(17, 17).TextColor(col) })
+			b.Children(func() { ui.Icon(c, tl.icon).Size(21, 21).TextColor(col) })
 			b.ContextMenu(func(m *ui.Menu) {
 				if m.Item("从常用工具栏移除").Chosen() {
 					a.later = append(a.later, func() { a.toggleFav(kind) })
@@ -143,7 +143,7 @@ func (a *application) favBar(c *ui.Context, t *ui.Theme, k palette) {
 // toolWithStar is a tool's button in the column, with, while the pointer
 // is on it, a star that puts it on the bar of favorites or takes it off.
 func (a *application) toolWithStar(c *ui.Context, t *ui.Theme, k palette, tl drawTool) {
-	ui.Box(c.Key("tool-wrap-"+tl.kind)).Size(32, 32).Shrink(0).Children(func() {
+	ui.Box(c.Key("tool-wrap-"+tl.kind)).Size(toolBtn, toolBtn).Shrink(0).Children(func() {
 		b := toolButton(c, t, k, "tool-"+tl.kind, tl.label, tl.icon, a.tool == tl.kind)
 		fav := a.isFav(tl.kind)
 		label, icon, col := "加入常用工具栏", starIcon, t.TextMuted
@@ -155,7 +155,7 @@ func (a *application) toolWithStar(c *ui.Context, t *ui.Theme, k palette, tl dra
 				a.later = append(a.later, func() { a.toggleFav(tl.kind) })
 			}
 		})
-		star := ui.ButtonBase(c.Key("star-"+tl.kind)).Absolute().Top(-3).Right(-6).Size(16, 16).Center().Radius(8).
+		star := ui.ButtonBase(c.Key("star-"+tl.kind)).Absolute().Top(-3).Right(-5).Size(16, 16).Center().Radius(8).
 			Cursor(ui.CursorPointer).Label(label + " " + tl.label).Tooltip(label)
 		star.Children(func() { ui.Icon(c, icon).Size(11, 11).TextColor(col) })
 		if !b.Hovered() && !star.Hovered() && !star.Focused() {
