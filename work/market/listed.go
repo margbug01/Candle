@@ -129,6 +129,19 @@ func (in Instrument) sessions() []session {
 	return nil
 }
 
+// Minutes is how long in's trading day is: A shares' 240 minutes, Hong
+// Kong's 330, a US stock's regular 390; 0 where Candle does not know it.
+func (in Instrument) Minutes() int {
+	if in.Loc == nil && !in.Future && !in.Index {
+		return 390
+	}
+	var d time.Duration
+	for _, s := range in.sessions() {
+		d += s.close - s.open
+	}
+	return int(d / time.Minute)
+}
+
 // hourStarts are the times of day in's hour bars begin: an hour from each
 // part's open, the last of a part shorter (Hong Kong's 11:30, which ends at
 // noon); every fourth of them begins a 4-hour bar.

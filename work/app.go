@@ -128,6 +128,8 @@ type application struct {
 	colors          map[string]*choice[ui.Color]
 
 	upd updates
+
+	intra *intraday // the day's minutes, double-clicked open; nil closed
 }
 
 func newApplication(set settings, file string, bin market.Binance, post func(func())) *application {

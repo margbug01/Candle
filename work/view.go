@@ -52,6 +52,7 @@ func (a *application) render(c *ui.Context) {
 		a.indicatorsDialog(c, t, k)
 		a.indicatorDialog(c, t, k)
 		a.editorDialog(c, t, k)
+		a.intradayDialog(c, t, k)
 	})
 	// What clicks in this frame do to the lists it was built from, now that
 	// it is built; and a frame to show it.
@@ -497,9 +498,10 @@ func (a *application) chartInput(ev ui.InputEvent) bool {
 			return false
 		}
 		if ev.Clicks >= 2 {
-			if onAxis {
+			switch {
+			case onAxis:
 				a.scale = prices{}
-			} else {
+			case !a.openIntraday(ev.X, ev.Y):
 				a.resetView()
 			}
 			return true

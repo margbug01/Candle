@@ -540,7 +540,7 @@ func (a *application) drawingBarItems(c *ui.Context, t *ui.Theme, k palette, d *
 // input with the focus takes all of those keys first, so typing edits text.
 func (a *application) drawingShortcuts(c *ui.Context) {
 	// The search box edits with these keys, as a field does.
-	if a.dialog || a.indList || a.indDialog || a.ed != nil || a.qb.focused {
+	if a.dialog || a.indList || a.indDialog || a.ed != nil || a.intra != nil || a.qb.focused {
 		return
 	}
 	if a.creating != nil || a.tool != "" || a.sel != 0 {
