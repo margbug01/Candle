@@ -26,7 +26,11 @@ func main() {
 	var win *mygo.Window
 	set := loadSettings(file)
 	applyTheme(set.Chart.Theme)
-	a := newApplication(set, file, bin, func(fn func()) { win.Update(fn) })
+	// Goroutines can post before WhenReady below has made win (seen on
+	// Windows); WhenReady queues them until then and runs them after it.
+	a := newApplication(set, file, bin, func(fn func()) {
+		mygo.App.WhenReady(func() { win.Update(fn) })
+	})
 	a.upd = myGoUpdates()
 	a.icons.dir = iconDir()
 	a.setMenu()
